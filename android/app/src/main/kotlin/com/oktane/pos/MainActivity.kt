@@ -1,4 +1,4 @@
-package com.example.paqueteria_app
+package com.oktane.pos
 
 import io.flutter.embedding.android.FlutterActivity
 

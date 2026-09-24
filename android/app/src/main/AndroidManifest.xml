@@ -9,7 +9,7 @@
         android:required="false" />
 
     <application
-        android:label="paqueteria_app"
+        android:label="Oktane POS"
         android:name="${applicationName}"
         tools:ignore="MissingClass"
         android:icon="@mipmap/ic_launcher"
