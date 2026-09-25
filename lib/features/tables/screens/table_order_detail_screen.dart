@@ -48,6 +48,8 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
   String? _selectedWaiterId;
   bool _isGlobalTakeaway = false;
   double _liveTotal = 0.0;
+  String? _pendingChargeId;
+  List<Map<String, dynamic>> _dispatchedItems = [];
 
   @override
   void initState() {
@@ -60,6 +62,47 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
     _loadAllTables();
     _newRoundItems.addAll(_tableService.getTableDraft(_currentTable.id));
     _loadLiveTableCharge();
+  }
+
+  List<Map<String, dynamic>> _parseItemsFromConcept(String concept) {
+    final List<Map<String, dynamic>> items = [];
+    final regExp = RegExp(r'(?:(\d+)\s*x\s*)?([^\(\$]+?)\s*\(\$([\d\.]+)\)');
+    final matches = regExp.allMatches(concept);
+
+    for (final match in matches) {
+      final qtyStr = match.group(1);
+      var rawName = match.group(2)?.trim() ?? 'Producto';
+      final priceStr = match.group(3);
+
+      var qty = int.tryParse(qtyStr ?? '1') ?? 1;
+      final price = double.tryParse(priceStr ?? '0.0') ?? 0.0;
+
+      rawName = rawName.replaceAll(RegExp(r'^[,\s]+'), '');
+      rawName = rawName.replaceAll(RegExp(r'Mesa\s*#?\d+\s*-\s*'), '');
+      rawName = rawName.replaceAll(RegExp(r'Ronda:\s*'), '');
+      rawName = rawName.replaceAll(RegExp(r'Ronda\s*'), '');
+      rawName = rawName.replaceAll(RegExp(r'^[,\s]+'), '');
+
+      final qtyPrefixMatch = RegExp(r'^(\d+)\s*x\s*').firstMatch(rawName);
+      if (qtyPrefixMatch != null) {
+        qty = int.tryParse(qtyPrefixMatch.group(1)!) ?? qty;
+        rawName = rawName.substring(qtyPrefixMatch.group(0)!.length).trim();
+      }
+
+      final cleanName = rawName.trim();
+      final subtotal = price * qty;
+
+      if (cleanName.isNotEmpty && price > 0) {
+        items.add({
+          'name': cleanName,
+          'quantity': qty,
+          'price': price,
+          'subtotal': subtotal,
+        });
+      }
+    }
+
+    return items;
   }
 
   Future<void> _loadLiveTableCharge() async {
@@ -76,12 +119,15 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
       if (!mounted) return;
 
       if (response != null) {
+        final String chargeId = response['id']?.toString() ?? '';
         final double amt = (response['amount'] as num?)?.toDouble() ?? 0.0;
         final String concept = response['concept']?.toString() ?? 'Consumo Mesa';
         final String waiterName = _selectedWaiterName ?? 'Mesero';
 
+        final parsedItems = _parseItemsFromConcept(concept);
+
         final liveTicket = {
-          'ticket_id': response['id']?.toString() ?? 'tk-live',
+          'ticket_id': chargeId,
           'amount': amt,
           'concept': concept,
           'waiter_id': response['waiter_id']?.toString() ?? response['user_id']?.toString(),
@@ -91,7 +137,9 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
         };
 
         setState(() {
+          _pendingChargeId = chargeId;
           _liveTotal = amt;
+          _dispatchedItems = parsedItems;
           _currentTable = _currentTable.copyWith(
             status: 'occupied',
             activeTickets: [liveTicket],
@@ -99,11 +147,135 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
         });
       } else {
         setState(() {
+          _pendingChargeId = null;
           _liveTotal = 0.0;
+          _dispatchedItems.clear();
         });
       }
     } catch (e) {
       debugPrint('⚠️ Consulta de comanda viva por mesa en Supabase omitida: $e');
+    }
+  }
+
+  Future<void> _confirmRemoveDispatchedItem(int index) async {
+    if (index < 0 || index >= _dispatchedItems.length) return;
+
+    final item = _dispatchedItems[index];
+    final String name = item['name']?.toString() ?? 'Producto';
+
+    final bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: Colors.red),
+            SizedBox(width: 8),
+            Text('¿Retirar producto?', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: Text('¿Deseas eliminar "$name" de la cuenta de la mesa?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red[700], foregroundColor: Colors.white),
+            child: const Text('Eliminar'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true || !mounted) return;
+
+    // 1. Remove item from list
+    setState(() {
+      _dispatchedItems.removeAt(index);
+    });
+
+    // 2. Recalculate total
+    final double newTotal = _dispatchedItems.fold(0.0, (sum, i) {
+      final p = (i['price'] as num?)?.toDouble() ?? 0.0;
+      final q = (i['quantity'] as num?)?.toInt() ?? 1;
+      return sum + (p * q);
+    });
+
+    // 3. Reconstruct concept
+    final List<String> itemStrs = _dispatchedItems.map((e) {
+      final q = (e['quantity'] as num?)?.toInt() ?? 1;
+      final qPrefix = q > 1 ? '${q}x ' : '';
+      return '$qPrefix${e['name']} (\$' + (e['price'] as num).toDouble().toStringAsFixed(1) + ')';
+    }).toList();
+
+    final String tableLabel = 'Mesa #${_currentTable.tableNumber}';
+    final String newConcept = '$tableLabel - Ronda: ${itemStrs.join(', ')}';
+
+    try {
+      final supa = Supabase.instance.client;
+
+      if (newTotal > 0 && _pendingChargeId != null) {
+        // Update charge in Supabase
+        await supa.from('charges').update({
+          'amount': newTotal,
+          'concept': newConcept,
+          'updated_at': DateTime.now().toIso8601String(),
+        }).eq('id', _pendingChargeId!);
+
+        if (!mounted) return;
+
+        setState(() {
+          _liveTotal = newTotal;
+        });
+
+        _tableService.notifyListeners();
+        widget.onTableUpdated?.call();
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('🗑️ "$name" retirado de la cuenta de Mesa #${_currentTable.tableNumber}'),
+            backgroundColor: Colors.orange[800],
+          ),
+        );
+      } else {
+        // newTotal == 0: Cancel charge and liberate table in Supabase
+        if (_pendingChargeId != null) {
+          await supa.from('charges').update({
+            'status': 'cancelled',
+            'updated_at': DateTime.now().toIso8601String(),
+          }).eq('id', _pendingChargeId!);
+        }
+
+        await supa.from('restaurant_tables').update({
+          'status': 'available',
+        }).eq('id', _currentTable.id);
+
+        _tableService.clearAllTableTickets(_currentZone.id, _currentTable.id);
+
+        if (!mounted) return;
+
+        setState(() {
+          _liveTotal = 0.0;
+          _dispatchedItems.clear();
+          _currentTable = _currentTable.copyWith(
+            status: 'free',
+            activeTickets: const [],
+          );
+        });
+
+        _tableService.notifyListeners();
+        widget.onTableUpdated?.call();
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('🧹 Todos los productos fueron retirados. Mesa #${_currentTable.tableNumber} liberada.'),
+            backgroundColor: Colors.green[800],
+          ),
+        );
+
+        // Pop back to map screen with table in green
+        Navigator.pop(context);
+      }
+    } catch (e) {
+      debugPrint('⚠️ Error al eliminar ítem de comanda en Supabase: $e');
     }
   }
 
@@ -747,7 +919,7 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
                           ' Rondas Previas / Servidas',
                           style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black87),
                         ),
-                        if (_currentTable.activeTickets.isNotEmpty)
+                        if (_previousRoundsTotal > 0)
                           Text(
                             _formatCurrency(_previousRoundsTotal),
                             style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.green),
@@ -756,59 +928,114 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
                     ),
                     const SizedBox(height: 6),
 
-                    _currentTable.activeTickets.isEmpty
-                        ? Container(
-                            padding: const EdgeInsets.all(16),
-                            decoration: BoxDecoration(
-                              color: Colors.grey[50],
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: Colors.grey[300]!),
-                            ),
-                            child: Center(
-                              child: Text(
-                                'No hay comandas previas servidas en esta mesa',
-                                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                              ),
-                            ),
-                          )
-                        : Column(
-                            children: _currentTable.activeTickets.map((ticket) {
-                              final isPeerSupport = ticket['is_peer_support'] == true;
-                              final ticketWaiter = ticket['waiter_name']?.toString() ?? 'Mesero';
-                              final amt = (ticket['amount'] as num?)?.toDouble() ?? 0.0;
+                    _dispatchedItems.isNotEmpty
+                        ? Column(
+                            children: _dispatchedItems.asMap().entries.map((entry) {
+                              final index = entry.key;
+                              final item = entry.value;
+                              final name = item['name']?.toString() ?? 'Producto';
+                              final qty = (item['quantity'] as num?)?.toInt() ?? 1;
+                              final price = (item['price'] as num?)?.toDouble() ?? 0.0;
+                              final subtotal = (item['subtotal'] as num?)?.toDouble() ?? (price * qty);
 
                               return Card(
                                 margin: const EdgeInsets.only(bottom: 8),
                                 elevation: 1,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                  side: BorderSide(color: Colors.green[200]!),
+                                ),
                                 child: ListTile(
                                   dense: true,
                                   leading: CircleAvatar(
                                     radius: 14,
-                                    backgroundColor: isPeerSupport ? Colors.purple[50] : Colors.blue[50],
-                                    child: Icon(
-                                      isPeerSupport ? Icons.handshake : Icons.receipt,
-                                      color: isPeerSupport ? Colors.purple : Colors.blue,
-                                      size: 14,
+                                    backgroundColor: Colors.green[50],
+                                    child: const Icon(
+                                      Icons.check_circle_outline,
+                                      color: Colors.green,
+                                      size: 16,
                                     ),
                                   ),
-                                  title: Text(ticket['concept']?.toString() ?? 'Consumo Mesa', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                                  subtitle: Wrap(
-                                    spacing: 6,
+                                  title: Text(
+                                    '${qty}x $name',
+                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                  ),
+                                  subtitle: Text(
+                                    'Precio unitario: ${_formatCurrency(price)}',
+                                    style: TextStyle(fontSize: 11, color: Colors.grey[700]),
+                                  ),
+                                  trailing: Row(
+                                    mainAxisSize: MainAxisSize.min,
                                     children: [
-                                      Text('Atendido por: $ticketWaiter', style: const TextStyle(fontSize: 11)),
-                                      if (isPeerSupport)
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                                          decoration: BoxDecoration(color: Colors.purple[100], borderRadius: BorderRadius.circular(4)),
-                                          child: const Text('APOYO', style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.purple)),
-                                        ),
+                                      Text(
+                                        _formatCurrency(subtotal),
+                                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.green),
+                                      ),
+                                      const SizedBox(width: 4),
+                                      IconButton(
+                                        icon: const Icon(Icons.delete_outline, size: 20, color: Colors.redAccent),
+                                        tooltip: 'Retirar producto de la cuenta',
+                                        onPressed: () => _confirmRemoveDispatchedItem(index),
+                                      ),
                                     ],
                                   ),
-                                  trailing: Text(_formatCurrency(amt), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.green)),
                                 ),
                               );
                             }).toList(),
-                          ),
+                          )
+                        : _currentTable.activeTickets.isEmpty
+                            ? Container(
+                                padding: const EdgeInsets.all(16),
+                                decoration: BoxDecoration(
+                                  color: Colors.grey[50],
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: Colors.grey[300]!),
+                                ),
+                                child: Center(
+                                  child: Text(
+                                    'No hay comandas previas servidas en esta mesa',
+                                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                                  ),
+                                ),
+                              )
+                            : Column(
+                                children: _currentTable.activeTickets.map((ticket) {
+                                  final isPeerSupport = ticket['is_peer_support'] == true;
+                                  final ticketWaiter = ticket['waiter_name']?.toString() ?? 'Mesero';
+                                  final amt = (ticket['amount'] as num?)?.toDouble() ?? 0.0;
+
+                                  return Card(
+                                    margin: const EdgeInsets.only(bottom: 8),
+                                    elevation: 1,
+                                    child: ListTile(
+                                      dense: true,
+                                      leading: CircleAvatar(
+                                        radius: 14,
+                                        backgroundColor: isPeerSupport ? Colors.purple[50] : Colors.blue[50],
+                                        child: Icon(
+                                          isPeerSupport ? Icons.handshake : Icons.receipt,
+                                          color: isPeerSupport ? Colors.purple : Colors.blue,
+                                          size: 14,
+                                        ),
+                                      ),
+                                      title: Text(ticket['concept']?.toString() ?? 'Consumo Mesa', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                                      subtitle: Wrap(
+                                        spacing: 6,
+                                        children: [
+                                          Text('Atendido por: $ticketWaiter', style: const TextStyle(fontSize: 11)),
+                                          if (isPeerSupport)
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                                              decoration: BoxDecoration(color: Colors.purple[100], borderRadius: BorderRadius.circular(4)),
+                                              child: const Text('APOYO', style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.purple)),
+                                            ),
+                                        ],
+                                      ),
+                                      trailing: Text(_formatCurrency(amt), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.green)),
+                                    ),
+                                  );
+                                }).toList(),
+                              ),
                     const SizedBox(height: 16),
                   ],
                 ),
