@@ -1,6 +1,8 @@
 class ChargeModel {
   final String? id;
   final String? shiftId;
+  final String? tableId;
+  final String? waiterId;
   final double amount;
   final String currency;
   final String status;
@@ -10,9 +12,15 @@ class ChargeModel {
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
+  static final RegExp _uuidRegExp = RegExp(
+    r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
+  );
+
   const ChargeModel({
     this.id,
     this.shiftId,
+    this.tableId,
+    this.waiterId,
     required this.amount,
     this.currency = 'MXN',
     this.status = 'pending',
@@ -37,6 +45,12 @@ class ChargeModel {
     if (shiftId != null && shiftId!.isNotEmpty) {
       data['shift_id'] = shiftId;
     }
+    if (tableId != null && _uuidRegExp.hasMatch(tableId!)) {
+      data['table_id'] = tableId;
+    }
+    if (waiterId != null && waiterId != userId && _uuidRegExp.hasMatch(waiterId!)) {
+      data['waiter_id'] = waiterId;
+    }
     if (createdAt != null) {
       data['created_at'] = createdAt!.toIso8601String();
     }
@@ -50,6 +64,8 @@ class ChargeModel {
     return ChargeModel(
       id: json['id']?.toString(),
       shiftId: json['shift_id']?.toString(),
+      tableId: json['table_id']?.toString(),
+      waiterId: json['waiter_id']?.toString(),
       amount: (json['amount'] as num).toDouble(),
       currency: json['currency']?.toString() ?? 'MXN',
       status: json['status']?.toString() ?? 'pending',

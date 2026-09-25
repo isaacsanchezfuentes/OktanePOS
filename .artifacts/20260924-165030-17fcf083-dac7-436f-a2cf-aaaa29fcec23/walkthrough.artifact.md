@@ -1,33 +1,33 @@
-# Walkthrough - POS Quick Charge, Real-time Payment Listener Filtering & Hot Restart Fix
+# Walkthrough - POS Quick Charge, Async Await & State Field `_liveTotal` Sync
 
-Se corrigió la emisión de falsos positivos en las alertas de pago en tiempo real al iniciar la aplicación o tras un Hot Restart.
+Se implementó la **Sincronización Asíncrona de `_liveTotal` y Recarga Inmediata de Saldo en `TableOrderDetailScreen`**.
 
 ---
 
-## Componentes Implementados
+## Componentes Entregados
 
-### 1. Modelo & Timestamp de Transición (`ChargeModel`)
-- [charge_model.dart](file:///C:/Users/PC/Shamanica/AndroidStudioProjects/oktane-pos/lib/features/charge/models/charge_model.dart): Añadida la propiedad `updatedAt` con el getter `effectiveTimestamp = updatedAt ?? createdAt ?? DateTime.now()` para evaluar el momento exacto de la transición a estado `'paid'`.
+### 1. Persistencia Asíncrona en `TableService`
+- [table_service.dart](file:///C:/Users/PC/Shamanica/AndroidStudioProjects/oktane-pos/lib/features/tables/services/table_service.dart):
+  - Método `addTicketToTable(...)` actualizado a `Future<void> addTicketToTable(...) async`, esperando la llamada `await cs.createOrUpdatePendingChargeForTable(...)` para garantizar que la escritura en Supabase se complete antes de la re-consulta.
 
-### 2. Carga Inicial Silenciosa & Discriminación Temporal (`charges_history_screen.dart`)
-- [charges_history_screen.dart](file:///C:/Users/PC/Shamanica/AndroidStudioProjects/oktane-pos/lib/features/charge/screens/charges_history_screen.dart):
-  - **Carga inicial silenciosa**: `_initialLoadCompleted` precarga en `_knownPaidIds` todos los cobros pagados existentes en el primer snapshot sin emitir ningún SnackBar.
-  - **Discriminación temporal**: `_listeningSince` guarda el timestamp de inicio de escucha. Las notificaciones SnackBar solo se disparan si `charge.effectiveTimestamp` es posterior a `_listeningSince`.
-
-### 3. Servicio de Cobros (`charge_service.dart`)
-- [charge_service.dart](file:///C:/Users/PC/Shamanica/AndroidStudioProjects/oktane-pos/lib/features/charge/services/charge_service.dart):
-  - `getTodayChargesStream(userId, {String? shiftId})`: Soporta filtrado opcional por `shift_id` a nivel base de datos para escuchar exclusivamente transacciones del turno activo.
-  - `updateChargeStatus`: Registra automáticamente `updated_at` con la fecha y hora de la transición de estado.
+### 2. Variable de Estado `_liveTotal` y Asignación Atómica
+- [table_order_detail_screen.dart](file:///C:/Users/PC/Shamanica/AndroidStudioProjects/oktane-pos/lib/features/tables/screens/table_order_detail_screen.dart):
+  - Añadida la variable de estado `double _liveTotal = 0.0;`.
+  - En `_loadLiveTableCharge()`, tras verificar `if (!mounted) return;`, asigna `_liveTotal = amt;` dentro de `setState()`.
+  - Método `_sendNewRoundToKitchen()` reestructurado con `async/await`:
+    1. Executa `await _tableService.addTicketToTable(...)`.
+    2. Limpia la bandeja local `_newRoundItems.clear()`.
+    3. Re-consulta con `await _loadLiveTableCharge()`.
+  - Tanto "TOTAL ACUMULADO MESA" como el botón "IR A COBRAR ($liveTotal)" reflejan de inmediato el saldo acumulado real ($2055.00) sin parpadeos ni inconsistencias.
 
 ---
 
 ## Verification Summary
 
 ### Análisis Estático (`analyze_file`)
-- `charge_model.dart`: 0 errores / 0 advertencias
-- `charge_service.dart`: 0 errores / 0 advertencias
-- `charges_history_screen.dart`: 0 errores / 0 advertencias
+- `table_service.dart`: 0 errores / 0 advertencias
+- `table_order_detail_screen.dart`: 0 errores / 0 advertencias
 
 ### Pruebas Unitarias (`flutter test`)
-- Comando: `flutter test test/features/charge_test.dart test/features/printer_test.dart test/features/cash_cut_test.dart test/features/shift_test.dart test/features/shift_policy_test.dart`
-- Resultado: `00:10 +12: All tests passed!` (100% de pruebas aprobadas).
+- Comando: `flutter test test/features/charge_test.dart test/features/printer_test.dart test/features/cash_cut_test.dart test/features/shift_test.dart test/features/shift_policy_test.dart test/features/tables_rbac_test.dart test/features/table_charging_test.dart test/features/menu_catalog_test.dart test/features/pre_add_dialog_test.dart test/features/table_order_test.dart test/features/printer_precheck_test.dart test/features/atomic_ticket_test.dart test/features/order_consolidation_test.dart test/features/relational_persistence_test.dart test/features/uuid_validation_test.dart test/features/waiter_sanitization_test.dart test/features/zone_uuid_test.dart test/features/table_parsing_test.dart test/features/round_math_test.dart`
+- Resultado: `00:35 +36: All tests passed!` (100% de pruebas aprobadas).

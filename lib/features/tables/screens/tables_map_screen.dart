@@ -39,6 +39,14 @@ class _TablesMapScreenState extends State<TablesMapScreen> with SingleTickerProv
     _rbacService = widget.rbacService ?? RbacService();
     _zones = _tableService.getZones();
     _tabController = TabController(length: _zones.length, vsync: this);
+    _syncTablesData();
+  }
+
+  Future<void> _syncTablesData() async {
+    await _tableService.fetchOrSeedSupabaseTables();
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   @override
@@ -133,9 +141,9 @@ class _TablesMapScreenState extends State<TablesMapScreen> with SingleTickerProv
       table: table,
       tableService: _tableService,
       onTableUpdated: () {
-        setState(() {});
+        _syncTablesData();
       },
-    );
+    ).then((_) => _syncTablesData());
   }
 
   Widget _buildStatusBadge(String status) {
@@ -143,18 +151,20 @@ class _TablesMapScreenState extends State<TablesMapScreen> with SingleTickerProv
     Color text;
     String label;
 
-    switch (status) {
+    switch (status.toLowerCase()) {
       case 'occupied':
         bg = Colors.orange[100]!;
         text = Colors.orange[900]!;
         label = 'Ocupada';
         break;
       case 'bill_requested':
+      case 'billed':
         bg = Colors.blue[100]!;
         text = Colors.blue[900]!;
         label = 'Cuenta Pedida';
         break;
       case 'free':
+      case 'available':
       default:
         bg = Colors.green[100]!;
         text = Colors.green[900]!;
@@ -256,22 +266,25 @@ class _TablesMapScreenState extends State<TablesMapScreen> with SingleTickerProv
     Color cardColor;
     Color borderColor;
 
-    switch (table.status) {
+    switch (table.status.toLowerCase()) {
       case 'occupied':
         cardColor = Colors.orange[50]!;
-        borderColor = Colors.orange[400]!;
+        borderColor = Colors.orange[500]!;
         break;
       case 'bill_requested':
+      case 'billed':
         cardColor = Colors.blue[50]!;
-        borderColor = Colors.blue[400]!;
+        borderColor = Colors.blue[500]!;
         break;
       case 'free':
+      case 'available':
       default:
         cardColor = Colors.green[50]!;
-        borderColor = Colors.green[400]!;
+        borderColor = Colors.green[500]!;
         break;
     }
 
+    final double tableTotal = table.activeTickets.fold(0.0, (sum, t) => sum + ((t['amount'] as num?)?.toDouble() ?? 0.0));
     final double width = table.seats > 6 ? 90.0 : 75.0;
     final double height = table.seats > 6 ? 90.0 : 75.0;
 
@@ -301,7 +314,17 @@ class _TablesMapScreenState extends State<TablesMapScreen> with SingleTickerProv
                 Text('${table.seats}', style: const TextStyle(fontSize: 10, color: Colors.blueGrey)),
               ],
             ),
-            if (table.activeTickets.isNotEmpty) ...[
+            if (tableTotal > 0) ...[
+              const SizedBox(height: 2),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                decoration: BoxDecoration(color: Colors.orange[800], borderRadius: BorderRadius.circular(4)),
+                child: Text(
+                  _formatCurrency(tableTotal),
+                  style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ] else if (table.activeTickets.isNotEmpty) ...[
               const SizedBox(height: 2),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),

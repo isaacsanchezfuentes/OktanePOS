@@ -23,6 +23,24 @@ class RestaurantTableModel {
     this.activeTickets = const [],
   });
 
+  static int _parseInt(dynamic val, int defaultValue) {
+    if (val == null) return defaultValue;
+    if (val is num) return val.toInt();
+    if (val is String) {
+      return int.tryParse(val) ?? (double.tryParse(val)?.toInt() ?? defaultValue);
+    }
+    return defaultValue;
+  }
+
+  static double _parseDouble(dynamic val, double defaultValue) {
+    if (val == null) return defaultValue;
+    if (val is num) return val.toDouble();
+    if (val is String) {
+      return double.tryParse(val) ?? defaultValue;
+    }
+    return defaultValue;
+  }
+
   RestaurantTableModel copyWith({
     String? id,
     String? zoneId,
@@ -68,11 +86,11 @@ class RestaurantTableModel {
     return RestaurantTableModel(
       id: json['id']?.toString() ?? '',
       zoneId: json['zone_id']?.toString() ?? '',
-      tableNumber: (json['table_number'] as num?)?.toInt() ?? 1,
-      seats: (json['seats'] as num?)?.toInt() ?? 4,
+      tableNumber: _parseInt(json['table_number'], 1),
+      seats: _parseInt(json['seats'], 4),
       shape: json['shape']?.toString() ?? 'square',
-      posX: (json['pos_x'] as num?)?.toDouble() ?? 0.5,
-      posY: (json['pos_y'] as num?)?.toDouble() ?? 0.5,
+      posX: _parseDouble(json['pos_x'], 0.5),
+      posY: _parseDouble(json['pos_y'], 0.5),
       status: json['status']?.toString() ?? 'free',
       assignedWaiter: json['assigned_waiter']?.toString(),
       activeTickets: json['active_tickets'] is List 

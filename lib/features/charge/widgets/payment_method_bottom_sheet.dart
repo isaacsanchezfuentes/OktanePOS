@@ -86,6 +86,15 @@ class _PaymentMethodBottomSheetState extends State<PaymentMethodBottomSheet> {
         paymentMethod: method,
       );
 
+      // Immediately set status to 'paid' on the same record without duplicating
+      if (charge.id != null) {
+        await widget.chargeService.updateChargeStatusAndMethod(
+          charge.id!,
+          'paid',
+          paymentMethod: method,
+        );
+      }
+
       if (method == 'qr') {
         try {
           await ThermalPrinterService().printChargeTicket(charge);

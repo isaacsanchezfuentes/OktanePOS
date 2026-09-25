@@ -11,7 +11,19 @@ void main() {
       final salonZoneId = zones.first.id;
 
       final tables = tableService.getTablesByZone(salonZoneId);
-      final occupiedTable = tables.firstWhere((t) => t.status == 'occupied');
+      final freeTable = tables.firstWhere((t) => t.status == 'free');
+
+      tableService.addTicketToTable(
+        salonZoneId,
+        freeTable.id,
+        amount: 250.0,
+        concept: r'Mesa 1 - Consumo ($250)',
+        waiterId: 'u-1',
+        waiterName: 'Carlos',
+      );
+
+      final updatedTables = tableService.getTablesByZone(salonZoneId);
+      final occupiedTable = updatedTables.firstWhere((t) => t.id == freeTable.id);
 
       final previousRoundsTotal = occupiedTable.activeTickets.fold(0.0, (sum, ticket) {
         return sum + ((ticket['amount'] as num?)?.toDouble() ?? 0.0);

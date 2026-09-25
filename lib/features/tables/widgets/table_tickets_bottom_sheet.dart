@@ -55,6 +55,40 @@ class _TableTicketsBottomSheetState extends State<TableTicketsBottomSheet> {
   void initState() {
     super.initState();
     _currentTable = widget.table;
+    _loadLiveTableCharge();
+  }
+
+  Future<void> _loadLiveTableCharge() async {
+    try {
+      final supa = Supabase.instance.client;
+      final response = await supa
+          .from('charges')
+          .select()
+          .eq('table_id', _currentTable.id)
+          .eq('status', 'pending')
+          .order('created_at', ascending: false)
+          .maybeSingle();
+
+      if (response != null && mounted) {
+        final double amt = (response['amount'] as num?)?.toDouble() ?? 0.0;
+        final String concept = response['concept']?.toString() ?? 'Consumo Mesa';
+        setState(() {
+          _currentTable = _currentTable.copyWith(
+            status: 'occupied',
+            activeTickets: [
+              {
+                'ticket_id': response['id']?.toString() ?? 'tk-live',
+                'amount': amt,
+                'concept': concept,
+                'waiter_name': 'Mesero',
+              }
+            ],
+          );
+        });
+      }
+    } catch (e) {
+      debugPrint('⚠️ Consulta viva de charge en bottom sheet omitida: $e');
+    }
   }
 
   String _formatCurrency(double amount) {
@@ -241,22 +275,28 @@ class _TableTicketsBottomSheetState extends State<TableTicketsBottomSheet> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Mesa #${_currentTable.tableNumber} (${widget.zone.name})',
-                    style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                  ),
-                  Text(
-                    _currentTable.assignedWaiter != null
-                        ? 'Mesero Titular: ${_currentTable.assignedWaiter}'
-                        : 'Mesa Disponible',
-                    style: TextStyle(fontSize: 13, color: Colors.grey[700]),
-                  ),
-                ],
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Mesa #${_currentTable.tableNumber} (${widget.zone.name})',
+                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    Text(
+                      _currentTable.assignedWaiter != null
+                          ? 'Mesero Titular: ${_currentTable.assignedWaiter}'
+                          : 'Mesa Disponible',
+                      style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
               ),
+              const SizedBox(width: 8),
               Row(
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   IconButton(
                     icon: const Icon(Icons.print_outlined, color: Colors.indigo),
@@ -360,68 +400,57 @@ class _TableTicketsBottomSheetState extends State<TableTicketsBottomSheet> {
           ],
 
           // Action Buttons
-          SizedBox(
-            width: double.infinity,
-            height: 48,
-            child: ElevatedButton.icon(
-              onPressed: () {
-                Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => TableOrderDetailScreen(
-                      zone: widget.zone,
-                      table: _currentTable,
-                      tableService: widget.tableService,
-                      onTableUpdated: widget.onTableUpdated,
-                    ),
-                  ),
-                );
-              },
-              icon: const Icon(Icons.restaurant_menu),
-              label: const Text('TOMAR PEDIDO / DETALLE MESA', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.indigo[800],
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-            ),
-          ),
-          const SizedBox(height: 10),
           Row(
             children: [
-              // + Añadir Ticket Button
               Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: _showAddTicketDialog,
-                  icon: const Icon(Icons.add_shopping_cart),
-                  label: const Text('+ AÑADIR TICKET'),
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                child: SizedBox(
+                  height: 48,
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => TableOrderDetailScreen(
+                            zone: widget.zone,
+                            table: _currentTable,
+                            tableService: widget.tableService,
+                            onTableUpdated: widget.onTableUpdated,
+                          ),
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.restaurant_menu),
+                    label: const FittedBox(
+                      child: Text('TOMAR PEDIDO / DETALLE MESA', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.indigo[800],
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
                   ),
                 ),
               ),
               if (_currentTable.activeTickets.isNotEmpty) ...[
                 const SizedBox(width: 10),
-
-                // Cobrar Mesa Completa Button
                 Expanded(
-                  flex: 1,
-                  child: ElevatedButton.icon(
-                    onPressed: _proceedToConsolidatedCharge,
-                    icon: const Icon(Icons.point_of_sale),
-                    label: FittedBox(
-                      child: Text(
-                        'COBRAR MESA (${_formatCurrency(_totalTableAmount)})',
-                        style: const TextStyle(fontWeight: FontWeight.bold),
+                  child: SizedBox(
+                    height: 48,
+                    child: ElevatedButton.icon(
+                      onPressed: _proceedToConsolidatedCharge,
+                      icon: const Icon(Icons.point_of_sale),
+                      label: FittedBox(
+                        child: Text(
+                          'COBRAR (${_formatCurrency(_totalTableAmount)})',
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                        ),
                       ),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green[700],
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green[700],
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
                     ),
                   ),
                 ),

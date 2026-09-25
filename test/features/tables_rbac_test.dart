@@ -72,20 +72,30 @@ void main() {
       final salonZoneId = zones.first.id;
 
       final tables = tableService.getTablesByZone(salonZoneId);
-      final tableWithTickets = tables.firstWhere((t) => t.activeTickets.isNotEmpty);
+      final freeTable = tables.firstWhere((t) => t.status == 'free');
+
+      tableService.addTicketToTable(
+        salonZoneId,
+        freeTable.id,
+        amount: 250.0,
+        concept: 'Mesa 1 - Bebidas',
+        waiterId: 'u-1',
+        waiterName: 'Carlos',
+      );
+
+      final tablesWithTicket = tableService.getTablesByZone(salonZoneId);
+      final tableWithTickets = tablesWithTicket.firstWhere((t) => t.id == freeTable.id);
 
       final ticketId = tableWithTickets.activeTickets.first['ticket_id'];
 
       tableService.removeTicketAndCheckFree(salonZoneId, tableWithTickets.id, ticketId);
 
       final updatedTables = tableService.getTablesByZone(salonZoneId);
-      final clearedTable = updatedTables.firstWhere((t) => t.id == tableWithTickets.id);
+      final clearedTable = updatedTables.firstWhere((t) => t.id == freeTable.id);
 
-      expect(clearedTable.activeTickets.length, tableWithTickets.activeTickets.length - 1);
-      if (clearedTable.activeTickets.isEmpty) {
-        expect(clearedTable.status, 'free');
-        expect(clearedTable.assignedWaiter, isNull);
-      }
+      expect(clearedTable.activeTickets.isEmpty, isTrue);
+      expect(clearedTable.status, 'free');
+      expect(clearedTable.assignedWaiter, isNull);
     });
   });
 }

@@ -11,7 +11,19 @@ void main() {
       final salonZoneId = zones.first.id;
 
       final tables = tableService.getTablesByZone(salonZoneId);
-      final occupiedTable = tables.firstWhere((t) => t.status == 'occupied');
+      final freeTable = tables.firstWhere((t) => t.status == 'free');
+
+      tableService.addTicketToTable(
+        salonZoneId,
+        freeTable.id,
+        amount: 250.0,
+        concept: 'Mesa 1 - Bebidas',
+        waiterId: 'u-1',
+        waiterName: 'Carlos',
+      );
+
+      final updatedTables1 = tableService.getTablesByZone(salonZoneId);
+      final occupiedTable = updatedTables1.firstWhere((t) => t.id == freeTable.id);
 
       expect(occupiedTable.activeTickets.isNotEmpty, isTrue);
 
@@ -24,8 +36,8 @@ void main() {
       // Execute table liberation
       tableService.clearAllTableTickets(salonZoneId, occupiedTable.id);
 
-      final updatedTables = tableService.getTablesByZone(salonZoneId);
-      final freedTable = updatedTables.firstWhere((t) => t.id == occupiedTable.id);
+      final updatedTables2 = tableService.getTablesByZone(salonZoneId);
+      final freedTable = updatedTables2.firstWhere((t) => t.id == occupiedTable.id);
 
       expect(freedTable.status, 'free');
       expect(freedTable.assignedWaiter, isNull);

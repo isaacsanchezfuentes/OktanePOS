@@ -61,7 +61,6 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
   final List<Map<String, dynamic>> _pendingOrderItems = [];
 
   String _rawInput = '0';
-  bool _isConceptExpanded = false;
   bool _isTakeaway = false;
   String _selectedTableLabel = 'Barra / Mostrador';
   String? _selectedWaiterName;
@@ -77,7 +76,6 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
     }
     if (widget.initialConcept != null && widget.initialConcept!.isNotEmpty) {
       _conceptController.text = widget.initialConcept!;
-      _isConceptExpanded = true;
     }
   }
 
@@ -88,6 +86,8 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
       if (key == 'CLEAR') {
         _rawInput = '0';
         _isTakeaway = false;
+        _pendingOrderItems.clear();
+        _conceptController.clear();
       } else if (key == 'BACKSPACE') {
         if (_rawInput.length > 1) {
           _rawInput = _rawInput.substring(0, _rawInput.length - 1);
@@ -127,22 +127,54 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
     });
   }
 
-  void _toggleTakeaway(bool val) {
+  void _recalculatePendingItemsTotal() {
+    double total = 0.0;
+    final List<String> concepts = [];
+    for (final item in _pendingOrderItems) {
+      final sub = (item['subtotal'] as num?)?.toDouble() ?? 0.0;
+      total += sub;
+      final name = item['name']?.toString() ?? 'Producto';
+      final qty = (item['quantity'] as num?)?.toInt() ?? 1;
+      final isTakeaway = item['is_takeaway'] == true;
+      final notes = item['notes']?.toString() ?? '';
+
+      final qtyPrefix = qty > 1 ? '${qty}x ' : '';
+      final takeawayTag = isTakeaway ? ' [Para llevar]' : '';
+      final notesTag = notes.isNotEmpty ? ' ($notes)' : '';
+      concepts.add('$qtyPrefix$name$takeawayTag$notesTag');
+    }
+
     setState(() {
-      _isTakeaway = val;
-      final currentAmount = double.tryParse(_rawInput) ?? 0.0;
-      if (val) {
-        final newAmount = currentAmount + 5.0;
-        _rawInput = newAmount.toStringAsFixed(2);
-        if (!_conceptController.text.contains('[Para llevar]')) {
-          _conceptController.text = '${_conceptController.text.trim()} [Para llevar]'.trim();
-        }
+      _rawInput = total > 0 ? total.toStringAsFixed(2) : '0';
+      if (concepts.isNotEmpty) {
+        _conceptController.text = concepts.join(' + ');
       } else {
-        final newAmount = (currentAmount - 5.0).clamp(0.0, 999999.0);
-        _rawInput = newAmount.toStringAsFixed(2);
-        _conceptController.text = _conceptController.text.replaceAll('[Para llevar]', '').trim();
+        _conceptController.clear();
       }
     });
+  }
+
+  Future<void> _editPendingItem(int index) async {
+    final item = _pendingOrderItems[index];
+    final menuItem = MenuItemModel(
+      id: item['item_id']?.toString() ?? 'm-temp',
+      name: item['name']?.toString() ?? 'Producto',
+      price: (item['price'] as num?)?.toDouble() ?? 0.0,
+    );
+    final updated = await ItemPreAddDialog.show(context, menuItem: menuItem);
+    if (updated != null && mounted) {
+      setState(() {
+        _pendingOrderItems[index] = updated;
+      });
+      _recalculatePendingItemsTotal();
+    }
+  }
+
+  void _removePendingItem(int index) {
+    setState(() {
+      _pendingOrderItems.removeAt(index);
+    });
+    _recalculatePendingItemsTotal();
   }
 
   Future<void> _onMenuItemSelected(MenuItemModel item) async {
@@ -150,32 +182,13 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
     if (resultItem == null || !mounted) return;
 
     final String itemName = resultItem['name']?.toString() ?? item.name;
-    final double itemPrice = (resultItem['price'] as num?)?.toDouble() ?? item.price;
     final int itemQty = (resultItem['quantity'] as num?)?.toInt() ?? 1;
-    final bool isTakeaway = resultItem['is_takeaway'] == true;
-    final String notes = resultItem['notes']?.toString() ?? '';
-    final double subtotal = (resultItem['subtotal'] as num?)?.toDouble() ?? (itemPrice * itemQty);
+    final double subtotal = (resultItem['subtotal'] as num?)?.toDouble() ?? 0.0;
 
     setState(() {
       _pendingOrderItems.add(resultItem);
-
-      final currentAmount = double.tryParse(_rawInput) ?? 0.0;
-      final newAmount = currentAmount + subtotal;
-      _rawInput = newAmount.toStringAsFixed(2);
-
-      final qtyPrefix = itemQty > 1 ? '${itemQty}x ' : '';
-      final takeawayTag = isTakeaway ? ' [Para llevar]' : '';
-      final notesTag = notes.isNotEmpty ? ' ($notes)' : '';
-      final itemDescription = '$qtyPrefix$itemName$takeawayTag$notesTag';
-
-      final currentConcept = _conceptController.text.trim();
-      if (currentConcept.isEmpty || currentConcept == 'Consumo mostrador') {
-        _conceptController.text = itemDescription;
-      } else {
-        _conceptController.text = '$currentConcept + $itemDescription';
-      }
-      _isConceptExpanded = true;
     });
+    _recalculatePendingItemsTotal();
 
     // Auto-clear autocomplete search bar and unfocus keyboard
     _menuSearchController?.clear();
@@ -232,51 +245,6 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
         ),
       ),
     );
-  }
-
-  void _sendOrderToKitchen() {
-    final activeUser = Supabase.instance.client.auth.currentUser;
-    final currentUserId = _selectedWaiterId ?? (activeUser?.id ?? 'waiter-1');
-    final currentWaiterName = _selectedWaiterName ?? (activeUser?.email?.split('@').first ?? 'Mesero');
-
-    final tableId = widget.tableId ?? 't-1';
-    final zoneId = widget.zoneId ?? 'zone-salon';
-
-    final conceptFinal = _conceptController.text.trim().isEmpty
-        ? 'Ronda de Consumo'
-        : _conceptController.text.trim();
-
-    _tableService.addTicketToTable(
-      zoneId,
-      tableId,
-      amount: _amount,
-      concept: conceptFinal,
-      waiterId: currentUserId,
-      waiterName: currentWaiterName,
-    );
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            const Text('👨‍🍳 ', style: TextStyle(fontSize: 20)),
-            Expanded(
-              child: Text(
-                'Comanda enviada a cocina (\$${_amount.toStringAsFixed(2)} MXN) en $_selectedTableLabel',
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-            ),
-          ],
-        ),
-        backgroundColor: Colors.indigo[800],
-        behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 3),
-      ),
-    );
-
-    _pendingOrderItems.clear();
-    _resetKeypad();
-    widget.onPaymentSuccess?.call();
   }
 
   Future<void> _onWaiterChanged(String newName, String newId) async {
@@ -362,7 +330,7 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
       _rawInput = '0';
       _conceptController.clear();
       _notesController.clear();
-      _isConceptExpanded = false;
+      _pendingOrderItems.clear();
       _isTakeaway = false;
     });
   }
@@ -449,6 +417,51 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
     ).then((val) => val == true);
   }
 
+  void _sendOrderToKitchen() {
+    final activeUser = Supabase.instance.client.auth.currentUser;
+    final currentUserId = _selectedWaiterId ?? (activeUser?.id ?? 'waiter-1');
+    final currentWaiterName = _selectedWaiterName ?? (activeUser?.email?.split('@').first ?? 'Mesero');
+
+    final tableId = widget.tableId ?? 't-1';
+    final zoneId = widget.zoneId ?? 'zone-salon';
+
+    final conceptFinal = _conceptController.text.trim().isEmpty
+        ? 'Ronda de Consumo'
+        : _conceptController.text.trim();
+
+    _tableService.addTicketToTable(
+      zoneId,
+      tableId,
+      amount: _amount,
+      concept: conceptFinal,
+      waiterId: currentUserId,
+      waiterName: currentWaiterName,
+    );
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Text('👨‍🍳 ', style: TextStyle(fontSize: 20)),
+            Expanded(
+              child: Text(
+                'Comanda enviada a cocina (\$${_amount.toStringAsFixed(2)} MXN) en $_selectedTableLabel',
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: Colors.indigo[800],
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 3),
+      ),
+    );
+
+    _pendingOrderItems.clear();
+    _resetKeypad();
+    widget.onPaymentSuccess?.call();
+  }
+
   Future<void> _openPaymentModal() async {
     if (_amount <= 0) return;
 
@@ -523,6 +536,10 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
   }
 
   String _formatAmount(double val) {
+    return NumberFormat.currency(locale: 'es_MX', symbol: '\$', decimalDigits: 2).format(val);
+  }
+
+  String _formatCurrency(double val) {
     return NumberFormat.currency(locale: 'es_MX', symbol: '\$', decimalDigits: 2).format(val);
   }
 
@@ -616,7 +633,15 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
       {'id': 'waiter-4', 'name': 'Sofía (Mesero 3)'},
     ];
 
-    final availableTables = ['Barra / Mostrador', 'Mesa #1', 'Mesa #3', 'Mesa #10'];
+    final List<String> availableTables = ['Barra / Mostrador'];
+    for (final z in _tableService.getZones()) {
+      for (final t in _tableService.getTablesByZone(z.id)) {
+        availableTables.add('Mesa #${t.tableNumber} (${z.name})');
+      }
+    }
+    if (!availableTables.contains(_selectedTableLabel)) {
+      _selectedTableLabel = availableTables.first;
+    }
 
     return Scaffold(
       appBar: AppBar(
@@ -721,166 +746,164 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
                 elevation: 0,
                 color: Colors.grey[100],
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                child: ExpansionTile(
-                  key: ValueKey(_isConceptExpanded),
-                  initiallyExpanded: _isConceptExpanded,
-                  onExpansionChanged: (val) => setState(() => _isConceptExpanded = val),
-                  leading: const Icon(Icons.fastfood_outlined, color: Colors.blueGrey),
-                  title: Row(
+                child: Padding(
+                  padding: const EdgeInsets.all(12.0),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      Expanded(
-                        child: Text(
-                          _conceptController.text.trim().isEmpty
-                              ? 'Añadir Producto / Nota'
-                              : _conceptController.text.trim(),
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: _conceptController.text.trim().isEmpty ? FontWeight.normal : FontWeight.bold,
-                            color: Colors.blueGrey[900],
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      FilterChip(
-                        label: const Text('+\$5 Llevar', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
-                        selected: _isTakeaway,
-                        selectedColor: Colors.deepOrange[100],
-                        onSelected: _toggleTakeaway,
-                      ),
-                    ],
-                  ),
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                      child: Column(
+                      // Table & Waiter Selectors
+                      Row(
                         children: [
-                          // Table & Waiter Selectors
-                          Row(
-                            children: [
-                              Expanded(
-                                child: DropdownButtonFormField<String>(
-                                  value: _selectedTableLabel,
-                                  isExpanded: true,
-                                  decoration: const InputDecoration(
-                                    labelText: 'Mesa / Ubicación',
-                                    border: OutlineInputBorder(),
-                                    contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                  ),
-                                  items: availableTables.map((t) => DropdownMenuItem(value: t, child: Text(t, style: const TextStyle(fontSize: 12)))).toList(),
-                                  onChanged: (val) {
-                                    if (val != null) setState(() => _selectedTableLabel = val);
-                                  },
-                                ),
+                          Expanded(
+                            child: DropdownButtonFormField<String>(
+                              value: _selectedTableLabel,
+                              isExpanded: true,
+                              decoration: const InputDecoration(
+                                labelText: 'Mesa / Ubicación',
+                                border: OutlineInputBorder(),
+                                contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                               ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: DropdownButtonFormField<String>(
-                                  value: _selectedWaiterName ?? activeUserName,
-                                  isExpanded: true,
-                                  decoration: const InputDecoration(
-                                    labelText: 'Mesero / Atención',
-                                    border: OutlineInputBorder(),
-                                    contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                  ),
-                                  items: waitersList.map((w) {
-                                    return DropdownMenuItem<String>(
-                                      value: w['name'],
-                                      child: Text(w['name']!, style: const TextStyle(fontSize: 12), overflow: TextOverflow.ellipsis),
-                                    );
-                                  }).toList(),
-                                  onChanged: (val) {
-                                    if (val != null) {
-                                      final selected = waitersList.firstWhere((w) => w['name'] == val);
-                                      _onWaiterChanged(selected['name']!, selected['id']!);
-                                    }
-                                  },
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 6),
-
-                          // Quick Order Navigation Button
-                          SizedBox(
-                            width: double.infinity,
-                            height: 38,
-                            child: ElevatedButton.icon(
-                              onPressed: _navigateToTableOrderDetail,
-                              icon: const Icon(Icons.assignment_outlined, size: 18),
-                              label: const Text('📋 TOMAR PEDIDO COMPLETO / VER MESA', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.indigo[800],
-                                foregroundColor: Colors.white,
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                              ),
+                              items: availableTables.map((t) => DropdownMenuItem(value: t, child: Text(t, style: const TextStyle(fontSize: 12)))).toList(),
+                              onChanged: (val) {
+                                if (val != null) setState(() => _selectedTableLabel = val);
+                              },
                             ),
                           ),
-                          const SizedBox(height: 6),
-
-                          // Menu Autocomplete Search Bar
-                          Autocomplete<MenuItemModel>(
-                            optionsBuilder: (TextEditingValue textEditingValue) {
-                              if (textEditingValue.text.isEmpty) {
-                                return const Iterable<MenuItemModel>.empty();
-                              }
-                              return menuItems.where((item) {
-                                return item.name.toLowerCase().contains(textEditingValue.text.toLowerCase());
-                              });
-                            },
-                            displayStringForOption: (option) => option.name,
-                            onSelected: _onMenuItemSelected,
-                            fieldViewBuilder: (context, controller, focusNode, onEditingComplete) {
-                              _menuSearchController = controller;
-                              return TextField(
-                                controller: controller,
-                                focusNode: focusNode,
-                                decoration: InputDecoration(
-                                  hintText: '🔍 Buscar producto en menú (ej. Tacos, Café)...',
-                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                                  contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                ),
-                              );
-                            },
-                          ),
-                          const SizedBox(height: 6),
-
-                          // Custom Concept / Notes Inputs
-                          Row(
-                            children: [
-                              Expanded(
-                                flex: 2,
-                                child: TextField(
-                                  controller: _conceptController,
-                                  decoration: InputDecoration(
-                                    labelText: 'Concepto Principal',
-                                    suffixIcon: IconButton(
-                                      icon: const Icon(Icons.clear, size: 18),
-                                      onPressed: () => setState(() => _conceptController.clear()),
-                                    ),
-                                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                                    contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                                  ),
-                                  onChanged: (_) => setState(() {}),
-                                ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: DropdownButtonFormField<String>(
+                              value: _selectedWaiterName ?? activeUserName,
+                              isExpanded: true,
+                              decoration: const InputDecoration(
+                                labelText: 'Mesero / Atención',
+                                border: OutlineInputBorder(),
+                                contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                               ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                flex: 1,
-                                child: TextField(
-                                  controller: _notesController,
-                                  decoration: InputDecoration(
-                                    labelText: 'Notas (sin sal, etc)',
-                                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                                    contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                                  ),
-                                ),
-                              ),
-                            ],
+                              items: waitersList.map((w) {
+                                return DropdownMenuItem<String>(
+                                  value: w['name'],
+                                  child: Text(w['name']!, style: const TextStyle(fontSize: 12), overflow: TextOverflow.ellipsis),
+                                );
+                              }).toList(),
+                              onChanged: (val) {
+                                if (val != null) {
+                                  final selected = waitersList.firstWhere((w) => w['name'] == val);
+                                  _onWaiterChanged(selected['name']!, selected['id']!);
+                                }
+                              },
+                            ),
                           ),
                         ],
                       ),
-                    ),
-                  ],
+                      const SizedBox(height: 6),
+
+                      // Quick Order Navigation Button
+                      SizedBox(
+                        width: double.infinity,
+                        height: 38,
+                        child: ElevatedButton.icon(
+                          onPressed: _navigateToTableOrderDetail,
+                          icon: const Icon(Icons.assignment_outlined, size: 18),
+                          label: const Text('📋 TOMAR PEDIDO COMPLETO / VER MESA', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.indigo[800],
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+
+                      // Menu Autocomplete Search Bar
+                      Autocomplete<MenuItemModel>(
+                        optionsBuilder: (TextEditingValue textEditingValue) {
+                          if (textEditingValue.text.isEmpty) {
+                            return const Iterable<MenuItemModel>.empty();
+                          }
+                          return menuItems.where((item) {
+                            return item.name.toLowerCase().contains(textEditingValue.text.toLowerCase());
+                          });
+                        },
+                        displayStringForOption: (option) => option.name,
+                        onSelected: _onMenuItemSelected,
+                        fieldViewBuilder: (context, controller, focusNode, onEditingComplete) {
+                          _menuSearchController = controller;
+                          return TextField(
+                            controller: controller,
+                            focusNode: focusNode,
+                            decoration: InputDecoration(
+                              hintText: '🔍 Buscar producto en menú (ej. Tacos, Café)...',
+                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            ),
+                          );
+                        },
+                      ),
+
+                      // Pending Products Card ("En Corto")
+                      if (_pendingOrderItems.isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(maxHeight: 140),
+                          child: SingleChildScrollView(
+                            physics: const BouncingScrollPhysics(),
+                            child: Column(
+                              children: _pendingOrderItems.asMap().entries.map((entry) {
+                                final index = entry.key;
+                                final item = entry.value;
+                                final name = item['name']?.toString() ?? 'Producto';
+                                final price = (item['price'] as num?)?.toDouble() ?? 0.0;
+                                final qty = (item['quantity'] as num?)?.toInt() ?? 1;
+                                final subtotal = (item['subtotal'] as num?)?.toDouble() ?? 0.0;
+                                final isTakeaway = item['is_takeaway'] == true;
+                                final notes = item['notes']?.toString() ?? '';
+
+                                return Card(
+                                  margin: const EdgeInsets.only(top: 4),
+                                  elevation: 1,
+                                  color: Colors.indigo[50],
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                    side: BorderSide(color: Colors.indigo[200]!),
+                                  ),
+                                  child: ListTile(
+                                    dense: true,
+                                    onTap: () => _editPendingItem(index),
+                                    leading: const Icon(Icons.edit_note, color: Colors.indigo, size: 22),
+                                    title: Text('${qty}x $name (\$$price c/u)', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                                    subtitle: Wrap(
+                                      spacing: 4,
+                                      runSpacing: 2,
+                                      children: [
+                                        if (notes.isNotEmpty) Text('Notas: $notes', style: const TextStyle(fontSize: 10)),
+                                        if (isTakeaway)
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                            decoration: BoxDecoration(color: Colors.deepOrange[100], borderRadius: BorderRadius.circular(4)),
+                                            child: const Text('Para llevar (+\$5)', style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.deepOrange)),
+                                          ),
+                                      ],
+                                    ),
+                                    trailing: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Text(_formatCurrency(subtotal), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.indigo)),
+                                        const SizedBox(width: 4),
+                                        IconButton(
+                                          icon: const Icon(Icons.clear, size: 18, color: Colors.red),
+                                          onPressed: () => _removePendingItem(index),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              }).toList(),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -901,7 +924,21 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
                     child: SizedBox(
                       height: 54,
                       child: OutlinedButton.icon(
-                        onPressed: _amount > 0 ? _sendOrderToKitchen : null,
+                        onPressed: _amount > 0
+                            ? () {
+                                if (_pendingOrderItems.isEmpty) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('Para mandar a cocina selecciona al menos un platillo o bebida del menú.'),
+                                      backgroundColor: Colors.orange,
+                                      duration: Duration(seconds: 3),
+                                    ),
+                                  );
+                                  return;
+                                }
+                                _sendOrderToKitchen();
+                              }
+                            : null,
                         icon: const Icon(Icons.soup_kitchen, size: 22),
                         label: const FittedBox(
                           child: Text(

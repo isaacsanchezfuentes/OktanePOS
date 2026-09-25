@@ -6,8 +6,13 @@ import 'package:oktane_pos/providers/auth_provider.dart';
 import 'package:oktane_pos/features/printer/services/thermal_printer_service.dart';
 import '../models/charge_model.dart';
 import '../services/charge_service.dart';
+import '../widgets/payment_method_bottom_sheet.dart';
 import '../../auth/services/rbac_service.dart';
 import '../../auth/widgets/print_authorization_dialog.dart';
+import '../../tables/services/table_service.dart';
+import 'package:oktane_pos/features/tables/models/zone_model.dart';
+import 'package:oktane_pos/features/tables/models/table_model.dart';
+import 'package:oktane_pos/features/tables/screens/table_order_detail_screen.dart';
 
 class ChargesHistoryScreen extends StatefulWidget {
   final ChargeService? chargeService;
@@ -24,9 +29,47 @@ class ChargesHistoryScreen extends StatefulWidget {
 class _ChargesHistoryScreenState extends State<ChargesHistoryScreen> {
   late final ChargeService _chargeService;
   final RbacService _rbacService = RbacService();
+  final TableService _tableService = TableService();
   late final DateTime _listeningSince;
   final Set<String> _knownPaidIds = {};
   bool _initialLoadCompleted = false;
+  String _selectedStatusFilter = 'all'; // 'all', 'pending', 'paid'
+
+  void _openTableOrderDetailForPendingCharge(ChargeModel charge) {
+    final zones = _tableService.getZones();
+    ZoneModel targetZone = zones.first;
+    RestaurantTableModel targetTable = _tableService.getTablesByZone(targetZone.id).first;
+
+    final concept = charge.concept;
+    final match = RegExp(r'Mesa\s*#?(\d+)').firstMatch(concept);
+    if (match != null) {
+      final tableNum = int.tryParse(match.group(1) ?? '') ?? 1;
+      for (final z in zones) {
+        final tables = _tableService.getTablesByZone(z.id);
+        for (final t in tables) {
+          if (t.tableNumber == tableNum) {
+            targetZone = z;
+            targetTable = t;
+            break;
+          }
+        }
+      }
+    }
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => TableOrderDetailScreen(
+          zone: targetZone,
+          table: targetTable,
+          tableService: _tableService,
+          onTableUpdated: () {
+            setState(() {});
+          },
+        ),
+      ),
+    );
+  }
 
   @override
   void initState() {
@@ -121,6 +164,34 @@ class _ChargesHistoryScreenState extends State<ChargesHistoryScreen> {
     }
   }
 
+  Future<void> _settlePendingCharge(ChargeModel charge) async {
+    if (charge.id == null) return;
+
+    final resultCharge = await PaymentMethodBottomSheet.show(
+      context,
+      amount: charge.amount,
+      concept: charge.concept,
+      chargeService: _chargeService,
+    );
+
+    if (resultCharge != null && mounted) {
+      await _chargeService.updateChargeStatusAndMethod(
+        charge.id!,
+        'paid',
+        paymentMethod: resultCharge.paymentMethod,
+      );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('✅ Ticket #${charge.id!.length >= 4 ? charge.id!.substring(0, 4).toUpperCase() : charge.id} cobrado exitosamente'),
+            backgroundColor: Colors.green[700],
+          ),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final userId = Supabase.instance.client.auth.currentUser?.id ?? '';
@@ -159,21 +230,30 @@ class _ChargesHistoryScreenState extends State<ChargesHistoryScreen> {
 
           final pendingCount = charges.where((c) => c.status == 'pending').length;
 
+          final filteredCharges = charges.where((c) {
+            if (_selectedStatusFilter == 'pending') return c.status == 'pending';
+            if (_selectedStatusFilter == 'paid') return c.status == 'paid';
+            return true;
+          }).toList();
+
           return Column(
             children: [
               // Summary Header
               _buildSummaryHeader(totalPaid, pendingCount),
 
+              // Status Filter Bar
+              _buildFilterBar(),
+
               // List of Charges
               Expanded(
-                child: charges.isEmpty
+                child: filteredCharges.isEmpty
                     ? _buildEmptyState()
                     : ListView.builder(
                         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                        itemCount: charges.length,
+                        itemCount: filteredCharges.length,
                         itemBuilder: (context, index) {
-                          final charge = charges[index];
-                          final folio = charges.length - index;
+                          final charge = filteredCharges[index];
+                          final folio = filteredCharges.length - index;
                           return _buildChargeCard(charge, folio);
                         },
                       ),
@@ -185,15 +265,51 @@ class _ChargesHistoryScreenState extends State<ChargesHistoryScreen> {
     );
   }
 
+  Widget _buildFilterBar() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 2.0),
+      child: Row(
+        children: [
+          FilterChip(
+            label: const Text('Todos', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+            selected: _selectedStatusFilter == 'all',
+            selectedColor: Colors.blue[100],
+            onSelected: (val) {
+              if (val) setState(() => _selectedStatusFilter = 'all');
+            },
+          ),
+          const SizedBox(width: 8),
+          FilterChip(
+            label: const Text('Pendientes', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+            selected: _selectedStatusFilter == 'pending',
+            selectedColor: Colors.orange[100],
+            onSelected: (val) {
+              if (val) setState(() => _selectedStatusFilter = 'pending');
+            },
+          ),
+          const SizedBox(width: 8),
+          FilterChip(
+            label: const Text('Pagados', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+            selected: _selectedStatusFilter == 'paid',
+            selectedColor: Colors.green[100],
+            onSelected: (val) {
+              if (val) setState(() => _selectedStatusFilter = 'paid');
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildSummaryHeader(double totalPaid, int pendingCount) {
     return Container(
       margin: const EdgeInsets.all(16),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.primaryContainer.withOpacity(0.4),
+        color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.4),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: Theme.of(context).colorScheme.primary.withOpacity(0.2),
+          color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.2),
         ),
       ),
       child: Row(
@@ -302,157 +418,166 @@ class _ChargesHistoryScreenState extends State<ChargesHistoryScreen> {
   }
 
   Widget _buildChargeCard(ChargeModel charge, int folio) {
-    return Card(
-      elevation: 2,
-      margin: const EdgeInsets.only(bottom: 12),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Top Row: Folio, Time, Status Chip
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: Colors.grey[200],
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        '#${charge.id != null && charge.id!.length >= 4 ? charge.id!.substring(0, 4).toUpperCase() : folio}',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.black87,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      _formatTime(charge.createdAt),
-                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                    ),
-                  ],
-                ),
-                Row(
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.print_outlined, size: 20),
-                      tooltip: 'Reimprimir Ticket',
-                      constraints: const BoxConstraints(),
-                      padding: const EdgeInsets.symmetric(horizontal: 6),
-                      onPressed: () async {
-                        final auth = context.read<AuthProvider>();
-                        final userId = Supabase.instance.client.auth.currentUser?.id ?? '';
-                        final isWaiter = _rbacService.isWaiter(auth.rol);
+    final isPending = charge.status == 'pending';
 
-                        if (isWaiter) {
-                          final authorized = await PrintAuthorizationDialog.show(
-                            context,
-                            waiterId: userId,
-                            amount: charge.amount,
-                            rbacService: _rbacService,
-                          );
-                          if (!authorized) return;
-                        }
-
-                        final success = await ThermalPrinterService().printChargeTicket(charge);
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                success 
-                                    ? '✅ Ticket enviado a impresora' 
-                                    : '⚠️ No se pudo imprimir (verifique impresora)',
-                              ),
-                              duration: const Duration(seconds: 2),
-                            ),
-                          );
-                        }
-                      },
-                    ),
-                    const SizedBox(width: 4),
-                    _buildStatusChip(charge.status),
-                  ],
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-
-            // Middle Row: Amount, Concept, Payment Method
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+    return InkWell(
+      borderRadius: BorderRadius.circular(16),
+      onTap: isPending ? () => _openTableOrderDetailForPendingCharge(charge) : null,
+      child: Card(
+        elevation: isPending ? 3 : 2,
+        margin: const EdgeInsets.only(bottom: 12),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: isPending ? BorderSide(color: Colors.orange[300]!, width: 1.5) : BorderSide.none,
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Top Row: Folio, Time, Status Chip
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Row(
                     children: [
-                      Text(
-                        _formatCurrency(charge.amount),
-                        style: const TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.w800,
-                          color: Colors.black87,
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.grey[200],
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          '#${charge.id != null && charge.id!.length >= 4 ? charge.id!.substring(0, 4).toUpperCase() : folio}',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.black87,
+                          ),
                         ),
                       ),
-                      const SizedBox(height: 2),
+                      const SizedBox(width: 8),
                       Text(
-                        charge.concept,
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w500,
-                          color: Colors.blueGrey[800],
-                        ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
+                        _formatTime(charge.createdAt),
+                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                       ),
                     ],
                   ),
-                ),
-                _buildMethodBadge(charge.paymentMethod),
-              ],
-            ),
-            const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.print_outlined, size: 20),
+                        tooltip: 'Reimprimir Ticket',
+                        constraints: const BoxConstraints(),
+                        padding: const EdgeInsets.symmetric(horizontal: 6),
+                        onPressed: () async {
+                          final auth = context.read<AuthProvider>();
+                          final userId = Supabase.instance.client.auth.currentUser?.id ?? '';
+                          final isWaiter = _rbacService.isWaiter(auth.rol);
 
-            // Bottom Actions (if pending)
-            if (charge.status == 'pending') ...[
-              const Divider(height: 1),
-              const SizedBox(height: 8),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  OutlinedButton.icon(
-                    onPressed: () => _updateStatus(charge, 'cancelled'),
-                    icon: const Icon(Icons.cancel_outlined, size: 16, color: Colors.red),
-                    label: const Text('Cancelar', style: TextStyle(color: Colors.red, fontSize: 13)),
-                    style: OutlinedButton.styleFrom(
-                      side: const BorderSide(color: Colors.red),
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  ElevatedButton.icon(
-                    onPressed: () => _updateStatus(charge, 'paid'),
-                    icon: const Icon(Icons.bolt, size: 16),
-                    label: const Text('Simular Pago de Cliente', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green[700],
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                    ),
+                          if (isWaiter) {
+                            final authorized = await PrintAuthorizationDialog.show(
+                              context,
+                              waiterId: userId,
+                              amount: charge.amount,
+                              rbacService: _rbacService,
+                            );
+                            if (!authorized) return;
+                          }
+
+                          final success = await ThermalPrinterService().printChargeTicket(charge);
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  success 
+                                      ? '✅ Ticket enviado a impresora' 
+                                      : '⚠️ No se pudo imprimir (verifique impresora)',
+                                ),
+                                duration: const Duration(seconds: 2),
+                              ),
+                            );
+                          }
+                        },
+                      ),
+                      const SizedBox(width: 4),
+                      _buildStatusChip(charge.status),
+                    ],
                   ),
                 ],
               ),
+              const SizedBox(height: 12),
+
+              // Middle Row: Amount, Concept, Payment Method (Only show payment method if paid)
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _formatCurrency(charge.amount),
+                          style: const TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.black87,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          charge.concept,
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                            color: Colors.blueGrey[800],
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (!isPending) _buildMethodBadge(charge.paymentMethod),
+                ],
+              ),
+
+              // Bottom Actions (if pending)
+              if (isPending) ...[
+                const SizedBox(height: 12),
+                const Divider(height: 1),
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    OutlinedButton.icon(
+                      onPressed: () => _updateStatus(charge, 'cancelled'),
+                      icon: const Icon(Icons.cancel_outlined, size: 16, color: Colors.red),
+                      label: const Text('Cancelar', style: TextStyle(color: Colors.red, fontSize: 13)),
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: Colors.red),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    ElevatedButton.icon(
+                      onPressed: () => _settlePendingCharge(charge),
+                      icon: const Icon(Icons.point_of_sale, size: 16),
+                      label: const Text('COBRAR CUENTA', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green[700],
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );

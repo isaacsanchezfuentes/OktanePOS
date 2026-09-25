@@ -39,12 +39,15 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
   late final MenuService _menuService;
 
   late RestaurantTableModel _currentTable;
+  late ZoneModel _currentZone;
+  List<RestaurantTableModel> _allTables = [];
   final List<Map<String, dynamic>> _newRoundItems = [];
   TextEditingController? _searchFieldController;
 
   String? _selectedWaiterName;
   String? _selectedWaiterId;
   bool _isGlobalTakeaway = false;
+  double _liveTotal = 0.0;
 
   @override
   void initState() {
@@ -53,6 +56,115 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
     _rbacService = widget.rbacService ?? RbacService();
     _menuService = widget.menuService ?? MenuService();
     _currentTable = widget.table;
+    _currentZone = widget.zone;
+    _loadAllTables();
+    _newRoundItems.addAll(_tableService.getTableDraft(_currentTable.id));
+    _loadLiveTableCharge();
+  }
+
+  Future<void> _loadLiveTableCharge() async {
+    try {
+      final supa = Supabase.instance.client;
+      final response = await supa
+          .from('charges')
+          .select()
+          .eq('table_id', _currentTable.id)
+          .eq('status', 'pending')
+          .order('created_at', ascending: false)
+          .maybeSingle();
+
+      if (!mounted) return;
+
+      if (response != null) {
+        final double amt = (response['amount'] as num?)?.toDouble() ?? 0.0;
+        final String concept = response['concept']?.toString() ?? 'Consumo Mesa';
+        final String waiterName = _selectedWaiterName ?? 'Mesero';
+
+        final liveTicket = {
+          'ticket_id': response['id']?.toString() ?? 'tk-live',
+          'amount': amt,
+          'concept': concept,
+          'waiter_id': response['waiter_id']?.toString() ?? response['user_id']?.toString(),
+          'waiter_name': waiterName,
+          'is_peer_support': false,
+          'created_at': response['created_at']?.toString(),
+        };
+
+        setState(() {
+          _liveTotal = amt;
+          _currentTable = _currentTable.copyWith(
+            status: 'occupied',
+            activeTickets: [liveTicket],
+          );
+        });
+      } else {
+        setState(() {
+          _liveTotal = 0.0;
+        });
+      }
+    } catch (e) {
+      debugPrint('⚠️ Consulta de comanda viva por mesa en Supabase omitida: $e');
+    }
+  }
+
+  void _loadAllTables() {
+    final zones = _tableService.getZones();
+    final List<RestaurantTableModel> list = [];
+    for (final z in zones) {
+      list.addAll(_tableService.getTablesByZone(z.id));
+    }
+    setState(() {
+      _allTables = list;
+    });
+  }
+
+  Future<void> _switchTable(RestaurantTableModel newTable, ZoneModel newZone) async {
+    if (newTable.id == _currentTable.id) return;
+
+    if (_newRoundItems.isNotEmpty) {
+      final bool? confirm = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.warning_amber_rounded, color: Colors.orange),
+              SizedBox(width: 8),
+              Text('Ítems sin enviar', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            ],
+          ),
+          content: const Text('Tiene productos en la ronda actual sin enviar a cocina. ¿Desea descartarlos y cambiar de mesa?'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.orange[800], foregroundColor: Colors.white),
+              child: const Text('Descartar y Cambiar'),
+            ),
+          ],
+        ),
+      );
+
+      if (confirm != true) return;
+    }
+
+    setState(() {
+      _currentTable = newTable;
+      _currentZone = newZone;
+      _newRoundItems.clear();
+      _isGlobalTakeaway = false;
+    });
+
+    _reloadTableData();
+  }
+
+  void _reloadTableData() {
+    final updatedList = _tableService.getTablesByZone(_currentZone.id);
+    final updatedTable = updatedList.firstWhere((t) => t.id == _currentTable.id, orElse: () => _currentTable);
+
+    setState(() {
+      _currentTable = updatedTable;
+    });
+    _loadLiveTableCharge();
   }
 
   String _formatCurrency(double amount) {
@@ -67,6 +179,9 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
   }
 
   double get _previousRoundsTotal {
+    if (_liveTotal > 0) {
+      return _liveTotal;
+    }
     return _currentTable.activeTickets.fold(0.0, (sum, ticket) {
       final amt = (ticket['amount'] as num?)?.toDouble() ?? 0.0;
       return sum + amt;
@@ -163,10 +278,11 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
 
     setState(() {
       _newRoundItems.add(resultItem);
+      _tableService.saveTableDraft(_currentTable.id, _newRoundItems);
     });
   }
 
-  void _sendNewRoundToKitchen() {
+  Future<void> _sendNewRoundToKitchen() async {
     if (_newRoundItems.isEmpty) return;
 
     final activeUser = Supabase.instance.client.auth.currentUser;
@@ -190,8 +306,9 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
 
     final conceptFinal = 'Ronda: ${itemDescriptions.join(', ')}';
 
-    _tableService.addTicketToTable(
-      widget.zone.id,
+    // 1. Await Supabase DB persistence
+    await _tableService.addTicketToTable(
+      _currentZone.id,
       _currentTable.id,
       amount: _newRoundTotal,
       concept: conceptFinal,
@@ -199,36 +316,41 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
       waiterName: currentWaiterName,
     );
 
-    // Refresh table state
-    final updatedList = _tableService.getTablesByZone(widget.zone.id);
-    final updatedTable = updatedList.firstWhere((t) => t.id == _currentTable.id, orElse: () => _currentTable);
+    // 2. Clear local draft and capture tray
+    _tableService.clearTableDraft(_currentTable.id);
 
-    setState(() {
-      _currentTable = updatedTable;
-      _newRoundItems.clear();
-      _isGlobalTakeaway = false;
-    });
+    if (mounted) {
+      setState(() {
+        _newRoundItems.clear();
+        _isGlobalTakeaway = false;
+      });
+    }
+
+    // 3. Reload fresh live table charge from Supabase
+    await _loadLiveTableCharge();
 
     widget.onTableUpdated?.call();
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            const Text('👨‍🍳 ', style: TextStyle(fontSize: 20)),
-            Expanded(
-              child: Text(
-                'Comanda enviada a cocina exitosamente en Mesa #${_currentTable.tableNumber}',
-                style: const TextStyle(fontWeight: FontWeight.bold),
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Text('👨‍🍳 ', style: TextStyle(fontSize: 20)),
+              Expanded(
+                child: Text(
+                  'Comanda enviada a cocina exitosamente en Mesa #${_currentTable.tableNumber}',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
+          backgroundColor: Colors.indigo[800],
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 3),
         ),
-        backgroundColor: Colors.indigo[800],
-        behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 3),
-      ),
-    );
+      );
+    }
   }
 
   void _proceedToConsolidatedCharge() {
@@ -255,7 +377,7 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
           initialAmount: _previousRoundsTotal,
           initialConcept: conceptFinal,
           tableId: _currentTable.id,
-          zoneId: widget.zone.id,
+          zoneId: _currentZone.id,
           tableService: _tableService,
           onPaymentSuccess: () {
             widget.onTableUpdated?.call();
@@ -296,7 +418,7 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
 
     final success = await printerService.printTablePreCheckTicket(
       tableName: 'Mesa #${_currentTable.tableNumber}',
-      zoneName: widget.zone.name,
+      zoneName: _currentZone.name,
       waiterName: waiterName,
       items: allItems,
       totalAmount: _grandTotal,
@@ -334,15 +456,72 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
       {'id': 'waiter-4', 'name': 'Sofía (Mesero 3)'},
     ];
 
+    final zones = _tableService.getZones();
+
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-          'Mesa #${_currentTable.tableNumber} (${widget.zone.name})',
-          style: const TextStyle(fontWeight: FontWeight.bold),
+        backgroundColor: Colors.white,
+        foregroundColor: const Color(0xFF0D47A1),
+        elevation: 1,
+        titleSpacing: 0,
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.table_restaurant, color: Color(0xFF0D47A1), size: 22),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Theme(
+                data: Theme.of(context).copyWith(
+                  canvasColor: Colors.white,
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: _currentTable.id,
+                    isExpanded: true,
+                    dropdownColor: Colors.white,
+                    elevation: 4,
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF0D47A1)),
+                    icon: const Icon(Icons.arrow_drop_down, color: Color(0xFF0D47A1)),
+                    items: _allTables.map((t) {
+                      final isSelected = t.id == _currentTable.id;
+                      final zone = zones.firstWhere((z) => z.id == t.zoneId, orElse: () => _currentZone);
+                      final label = 'Mesa #${t.tableNumber} (${zone.name})';
+                      return DropdownMenuItem<String>(
+                        value: t.id,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: isSelected ? Colors.blue.shade50 : Colors.transparent,
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            label,
+                            style: TextStyle(
+                              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                              fontSize: 14,
+                              color: isSelected ? const Color(0xFF0D47A1) : Colors.black87,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                    onChanged: (selectedId) {
+                      if (selectedId != null) {
+                        final selectedTable = _allTables.firstWhere((t) => t.id == selectedId);
+                        final selectedZone = zones.firstWhere((z) => z.id == selectedTable.zoneId, orElse: () => _currentZone);
+                        _switchTable(selectedTable, selectedZone);
+                      }
+                    },
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.print_outlined),
+            icon: const Icon(Icons.print_outlined, color: Color(0xFF0D47A1)),
             tooltip: 'Imprimir Pre-cuenta',
             onPressed: _printPreCheckTicket,
           ),
@@ -516,6 +695,7 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
                                             item['is_takeaway'] = val;
                                             item['subtotal'] = (price + (val ? 5.0 : 0.0)) * qty;
                                           });
+                                          _tableService.saveTableDraft(_currentTable.id, _newRoundItems);
                                         },
                                       ),
                                     ],
@@ -537,6 +717,7 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
                                             setState(() {
                                               _newRoundItems[index] = updatedResult;
                                             });
+                                            _tableService.saveTableDraft(_currentTable.id, _newRoundItems);
                                           }
                                         },
                                       ),
@@ -546,6 +727,7 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
                                           setState(() {
                                             _newRoundItems.removeAt(index);
                                           });
+                                          _tableService.saveTableDraft(_currentTable.id, _newRoundItems);
                                         },
                                       ),
                                     ],
