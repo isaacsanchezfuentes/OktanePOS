@@ -362,4 +362,145 @@ class ThermalPrinterService {
       return false;
     }
   }
+
+  Future<String> getPaymentBaseUrl() async {
+    final url = await _storage.read(key: 'payment_base_url');
+    if (url != null && url.isNotEmpty) return url;
+    return 'https://pay.oktane.io/o/';
+  }
+
+  /// Generates and prints an ESC/POS Pre-Check ticket with centered QR Code & SKU.
+  Future<bool> printTablePreCheckTicket({
+    required String tableName,
+    required String zoneName,
+    required String waiterName,
+    required List<Map<String, dynamic>> items,
+    required double totalAmount,
+    String? customPaymentBaseUrl,
+  }) async {
+    final bool ready = await ensureConnected();
+    if (!ready) {
+      debugPrint('❌ Impresora no disponible para imprimir pre-cuenta');
+      return false;
+    }
+
+    try {
+      final profile = await CapabilityProfile.load();
+      final generator = Generator(PaperSize.mm58, profile);
+      List<int> bytes = [];
+
+      final now = DateTime.now();
+      final dateStr = DateFormat('dd/MM/yyyy HH:mm').format(now);
+      final cleanTableName = tableName.replaceAll(' ', '').toUpperCase();
+      final sku = 'ORD-$cleanTableName-${now.millisecondsSinceEpoch}';
+
+      final baseUrl = customPaymentBaseUrl ?? await getPaymentBaseUrl();
+      final paymentUrl = '$baseUrl$sku';
+
+      final tip10 = totalAmount * 0.10;
+      final tip15 = totalAmount * 0.15;
+
+      bytes += generator.setGlobalCodeTable('CP1252');
+
+      // Header Centered
+      bytes += generator.text(
+        'OKTANE POS',
+        styles: const PosStyles(
+          align: PosAlign.center,
+          bold: true,
+          height: PosTextSize.size2,
+          width: PosTextSize.size2,
+        ),
+      );
+      bytes += generator.text(
+        'PRE-CUENTA DE MESA',
+        styles: const PosStyles(align: PosAlign.center, bold: true),
+      );
+      bytes += generator.text(
+        '--------------------------------',
+        styles: const PosStyles(align: PosAlign.center),
+      );
+
+      // Metadata
+      bytes += generator.text('Mesa: $tableName ($zoneName)');
+      bytes += generator.text('Atendio: $waiterName');
+      bytes += generator.text('Fecha: $dateStr');
+      bytes += generator.text(
+        '--------------------------------',
+        styles: const PosStyles(align: PosAlign.center),
+      );
+
+      // Body Items
+      if (items.isEmpty) {
+        bytes += generator.text('Consumo de Mesa', styles: const PosStyles(bold: true));
+      } else {
+        for (final item in items) {
+          final name = item['name']?.toString() ?? item['concept']?.toString() ?? 'Consumo';
+          final qty = (item['quantity'] as num?)?.toInt() ?? 1;
+          final price = (item['price'] as num?)?.toDouble() ?? (item['amount'] as num?)?.toDouble() ?? 0.0;
+          final subtotal = (item['subtotal'] as num?)?.toDouble() ?? price;
+          final isTakeaway = item['is_takeaway'] == true;
+          final notes = item['notes']?.toString() ?? '';
+
+          final takeawayTag = isTakeaway ? ' [LLEVAR]' : '';
+          final lineDesc = '${qty}x $name$takeawayTag';
+
+          bytes += generator.text(lineDesc, styles: const PosStyles(bold: true));
+          if (notes.isNotEmpty) {
+            bytes += generator.text('  Notas: $notes');
+          }
+          bytes += generator.text('  Subtotal: \$${subtotal.toStringAsFixed(2)} MXN');
+        }
+      }
+
+      bytes += generator.text(
+        '--------------------------------',
+        styles: const PosStyles(align: PosAlign.center),
+      );
+
+      // Totals & Tip Suggestions
+      bytes += generator.text(
+        'SUBTOTAL: \$${totalAmount.toStringAsFixed(2)} MXN',
+        styles: const PosStyles(
+          align: PosAlign.right,
+          bold: true,
+        ),
+      );
+      bytes += generator.text('Propina sug 10%: \$${tip10.toStringAsFixed(2)} MXN', styles: const PosStyles(align: PosAlign.right));
+      bytes += generator.text('Propina sug 15%: \$${tip15.toStringAsFixed(2)} MXN', styles: const PosStyles(align: PosAlign.right));
+
+      bytes += generator.text(
+        'TOTAL: \$${totalAmount.toStringAsFixed(2)} MXN',
+        styles: const PosStyles(
+          align: PosAlign.center,
+          bold: true,
+          height: PosTextSize.size2,
+          width: PosTextSize.size1,
+        ),
+      );
+
+      bytes += generator.text(
+        '--------------------------------',
+        styles: const PosStyles(align: PosAlign.center),
+      );
+      bytes += generator.emptyLines(1);
+
+      // Centered QR Code
+      bytes += generator.qrcode(paymentUrl, size: QRSize.size4);
+      bytes += generator.emptyLines(1);
+
+      // Footer
+      bytes += generator.text('SKU: $sku', styles: const PosStyles(align: PosAlign.center, bold: true));
+      bytes += generator.text('Escanea para pagar con tarjeta / digital', styles: const PosStyles(align: PosAlign.center));
+      bytes += generator.text('o presenta este ticket en caja.', styles: const PosStyles(align: PosAlign.center));
+
+      bytes += generator.emptyLines(3);
+      bytes += generator.cut();
+
+      return await PrintBluetoothThermal.writeBytes(bytes);
+    } catch (e) {
+      debugPrint('❌ Error imprimiendo ticket de pre-cuenta: $e');
+      return false;
+    }
+  }
 }

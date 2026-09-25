@@ -143,4 +143,27 @@ class TableService {
       }
     }
   }
+
+  void clearAllTableTickets(String zoneId, String tableId) {
+    final list = _tablesByZone[zoneId];
+    if (list != null) {
+      final index = list.indexWhere((t) => t.id == tableId);
+      if (index != -1) {
+        final table = list[index];
+        list[index] = RestaurantTableModel(
+          id: table.id,
+          zoneId: table.zoneId,
+          tableNumber: table.tableNumber,
+          seats: table.seats,
+          shape: table.shape,
+          posX: table.posX,
+          posY: table.posY,
+          status: 'free',
+          assignedWaiter: null,
+          activeTickets: const [],
+        );
+        debugPrint('🧹 Mesa ${table.tableNumber} totalmente liberada (estatus: free).');
+      }
+    }
+  }
 }
