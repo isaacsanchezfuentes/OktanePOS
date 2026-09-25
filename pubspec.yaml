@@ -1,5 +1,5 @@
 name: oktane_pos
-description: "Oktane POS Application"
+description: "Oktane POS - Sistema de punto de venta"
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -55,11 +55,14 @@ dependencies:
   # Hardware / Media
   mobile_scanner: ^5.0.0
   image_picker: ^1.0.7
+  permission_handler: ^11.3.1
 
   # PDF and Printing
   pdf: ^3.10.8
   printing: ^5.11.1
   qr_flutter: ^4.1.0
+  print_bluetooth_thermal: ^1.1.2
+  esc_pos_utils_plus: ^2.0.4
 
   # Utils
   intl: ^0.19.0

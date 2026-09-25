@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'chofer/seleccionar_ruta_screen.dart';
+import '../../features/charge/screens/quick_charge_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -41,10 +41,10 @@ class _LoginScreenState extends State<LoginScreen> {
       if (mounted) {
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (context) => const SeleccionarRutaScreen()),
+          MaterialPageRoute(builder: (context) => const QuickChargeScreen()),
         );
       }
-    } on AuthException catch (e) {
+    } on AuthException {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(

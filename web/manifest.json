@@ -1,6 +1,6 @@
 {
-    "name": "paqueteria_app",
-    "short_name": "paqueteria_app",
+    "name": "oktane_pos",
+    "short_name": "oktane_pos",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
