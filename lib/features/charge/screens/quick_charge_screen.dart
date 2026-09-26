@@ -14,6 +14,7 @@ import '../../printer/screens/printer_settings_screen.dart';
 import '../../cash_cut/screens/cash_cut_screen.dart';
 import '../../cash_cut/screens/cash_calendar_screen.dart';
 import '../../cash_cut/services/shift_service.dart';
+import 'package:oktane_pos/core/localization/app_locale.dart';
 import '../../tables/screens/tables_map_screen.dart';
 import '../../tables/services/table_service.dart';
 import 'package:oktane_pos/features/tables/models/zone_model.dart';
@@ -673,6 +674,31 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
           ),
         ),
         actions: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: ListenableBuilder(
+              listenable: AppLocale.instance,
+              builder: (context, _) {
+                final isEs = AppLocale.instance.currentLang == 'es';
+                return InkWell(
+                  onTap: () => AppLocale.instance.toggle(),
+                  borderRadius: BorderRadius.circular(6),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.indigo[50],
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: Colors.indigo[200]!, width: 0.8),
+                    ),
+                    child: Text(
+                      isEs ? '🇲🇽 ES' : '🇺🇸 EN',
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.indigo),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
           IconButton(
             icon: const Icon(Icons.table_restaurant),
             tooltip: 'Plano de Mesas',
@@ -744,258 +770,263 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
         ],
       ),
       resizeToAvoidBottomInset: false,
-      body: SafeArea(
-        child: Column(
-          children: [
-            // Amount Display Top Banner
-            AmountDisplay(
-              amount: _amount,
-              rawInput: _rawInput,
-            ),
+      body: ListenableBuilder(
+        listenable: AppLocale.instance,
+        builder: (context, _) {
+          return SafeArea(
+            child: Column(
+              children: [
+                // Amount Display Top Banner
+                AmountDisplay(
+                  amount: _amount,
+                  rawInput: _rawInput,
+                ),
 
-            // Responsive Controls Section
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 2.0),
-              child: Card(
-                elevation: 0,
-                color: Colors.grey[100],
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                child: Padding(
-                  padding: const EdgeInsets.all(12.0),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // Table & Waiter Selectors
-                      Row(
+                // Responsive Controls Section
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 2.0),
+                  child: Card(
+                    elevation: 0,
+                    color: Colors.grey[100],
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    child: Padding(
+                      padding: const EdgeInsets.all(12.0),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          Expanded(
-                            child: DropdownButtonFormField<String>(
-                              initialValue: _selectedTableLabel,
-                              isExpanded: true,
-                              decoration: const InputDecoration(
-                                labelText: 'Mesa / Ubicación',
-                                border: OutlineInputBorder(),
-                                contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          // Table & Waiter Selectors
+                          Row(
+                            children: [
+                              Expanded(
+                                child: DropdownButtonFormField<String>(
+                                  initialValue: _selectedTableLabel,
+                                  isExpanded: true,
+                                  decoration: InputDecoration(
+                                    labelText: tr('table_location'),
+                                    border: const OutlineInputBorder(),
+                                    contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                  ),
+                                  items: availableTables.map((t) => DropdownMenuItem(value: t, child: Text(t, style: const TextStyle(fontSize: 12)))).toList(),
+                                  onChanged: (val) {
+                                    if (val != null) setState(() => _selectedTableLabel = val);
+                                  },
+                                ),
                               ),
-                              items: availableTables.map((t) => DropdownMenuItem(value: t, child: Text(t, style: const TextStyle(fontSize: 12)))).toList(),
-                              onChanged: (val) {
-                                if (val != null) setState(() => _selectedTableLabel = val);
-                              },
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: DropdownButtonFormField<String>(
+                                  value: _selectedWaiterName ?? activeUserName,
+                                  isExpanded: true,
+                                  decoration: InputDecoration(
+                                    labelText: tr('waiter_service'),
+                                    border: const OutlineInputBorder(),
+                                    contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                  ),
+                                  items: waitersList.map((w) {
+                                    return DropdownMenuItem<String>(
+                                      value: w['name'],
+                                      child: Text(w['name']!, style: const TextStyle(fontSize: 12), overflow: TextOverflow.ellipsis),
+                                    );
+                                  }).toList(),
+                                  onChanged: (val) {
+                                    if (val != null) {
+                                      final selected = waitersList.firstWhere((w) => w['name'] == val);
+                                      _onWaiterChanged(selected['name']!, selected['id']!);
+                                    }
+                                  },
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+
+                          // Quick Order Navigation Button
+                          SizedBox(
+                            width: double.infinity,
+                            height: 38,
+                            child: ElevatedButton.icon(
+                              onPressed: _navigateToTableOrderDetail,
+                              icon: const Icon(Icons.assignment_outlined, size: 18),
+                              label: Text('📋 ${tr('view_table')}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.indigo[800],
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              ),
                             ),
                           ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: DropdownButtonFormField<String>(
-                              value: _selectedWaiterName ?? activeUserName,
-                              isExpanded: true,
-                              decoration: const InputDecoration(
-                                labelText: 'Mesero / Atención',
-                                border: OutlineInputBorder(),
-                                contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                              ),
-                              items: waitersList.map((w) {
-                                return DropdownMenuItem<String>(
-                                  value: w['name'],
-                                  child: Text(w['name']!, style: const TextStyle(fontSize: 12), overflow: TextOverflow.ellipsis),
-                                );
-                              }).toList(),
-                              onChanged: (val) {
-                                if (val != null) {
-                                  final selected = waitersList.firstWhere((w) => w['name'] == val);
-                                  _onWaiterChanged(selected['name']!, selected['id']!);
-                                }
-                              },
-                            ),
+                          const SizedBox(height: 6),
+
+                          // Menu Autocomplete Search Bar
+                          Autocomplete<MenuItemModel>(
+                            optionsBuilder: (TextEditingValue textEditingValue) {
+                              if (textEditingValue.text.isEmpty) {
+                                return const Iterable<MenuItemModel>.empty();
+                              }
+                              return menuItems.where((item) {
+                                return item.name.toLowerCase().contains(textEditingValue.text.toLowerCase());
+                              });
+                            },
+                            displayStringForOption: (option) => option.name,
+                            onSelected: _onMenuItemSelected,
+                            fieldViewBuilder: (context, controller, focusNode, onEditingComplete) {
+                              _menuSearchController = controller;
+                              return TextField(
+                                controller: controller,
+                                focusNode: focusNode,
+                                decoration: InputDecoration(
+                                  hintText: '🔍 ${tr('search_menu')}',
+                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                                  contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                ),
+                              );
+                            },
                           ),
+
+                          // Pending Products Card ("En Corto")
+                          if (_pendingOrderItems.isNotEmpty) ...[
+                            const SizedBox(height: 6),
+                            ConstrainedBox(
+                              constraints: const BoxConstraints(maxHeight: 140),
+                              child: SingleChildScrollView(
+                                physics: const BouncingScrollPhysics(),
+                                child: Column(
+                                  children: _pendingOrderItems.asMap().entries.map((entry) {
+                                    final index = entry.key;
+                                    final item = entry.value;
+                                    final name = item['name']?.toString() ?? 'Producto';
+                                    final price = (item['price'] as num?)?.toDouble() ?? 0.0;
+                                    final qty = (item['quantity'] as num?)?.toInt() ?? 1;
+                                    final subtotal = (item['subtotal'] as num?)?.toDouble() ?? 0.0;
+                                    final isTakeaway = item['is_takeaway'] == true;
+                                    final notes = item['notes']?.toString() ?? '';
+
+                                    return Card(
+                                      margin: const EdgeInsets.only(top: 4),
+                                      elevation: 1,
+                                      color: Colors.indigo[50],
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(10),
+                                        side: BorderSide(color: Colors.indigo[200]!),
+                                      ),
+                                      child: ListTile(
+                                        dense: true,
+                                        onTap: () => _editPendingItem(index),
+                                        leading: const Icon(Icons.edit_note, color: Colors.indigo, size: 22),
+                                        title: Text('${qty}x $name (\$$price c/u)', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                                        subtitle: Wrap(
+                                          spacing: 4,
+                                          runSpacing: 2,
+                                          children: [
+                                            if (notes.isNotEmpty) Text('Notas: $notes', style: const TextStyle(fontSize: 10)),
+                                            if (isTakeaway)
+                                              Container(
+                                                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                                decoration: BoxDecoration(color: Colors.deepOrange[100], borderRadius: BorderRadius.circular(4)),
+                                                child: const Text('Para llevar (+\$5)', style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.deepOrange)),
+                                              ),
+                                          ],
+                                        ),
+                                        trailing: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Text(_formatCurrency(subtotal), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.indigo)),
+                                            const SizedBox(width: 4),
+                                            IconButton(
+                                              icon: const Icon(Icons.clear, size: 18, color: Colors.red),
+                                              onPressed: () => _removePendingItem(index),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    );
+                                  }).toList(),
+                                ),
+                              ),
+                            ),
+                          ],
                         ],
                       ),
-                      const SizedBox(height: 6),
+                    ),
+                  ),
+                ),
 
-                      // Quick Order Navigation Button
-                      SizedBox(
-                        width: double.infinity,
-                        height: 38,
-                        child: ElevatedButton.icon(
-                          onPressed: _navigateToTableOrderDetail,
-                          icon: const Icon(Icons.assignment_outlined, size: 18),
-                          label: const Text('📋 TOMAR PEDIDO COMPLETO / VER MESA', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.indigo[800],
-                            foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 6),
+                // POS Keypad
+                Expanded(
+                  child: PosKeypad(
+                    onKeyTap: _handleKeyTap,
+                  ),
+                ),
 
-                      // Menu Autocomplete Search Bar
-                      Autocomplete<MenuItemModel>(
-                        optionsBuilder: (TextEditingValue textEditingValue) {
-                          if (textEditingValue.text.isEmpty) {
-                            return const Iterable<MenuItemModel>.empty();
-                          }
-                          return menuItems.where((item) {
-                            return item.name.toLowerCase().contains(textEditingValue.text.toLowerCase());
-                          });
-                        },
-                        displayStringForOption: (option) => option.name,
-                        onSelected: _onMenuItemSelected,
-                        fieldViewBuilder: (context, controller, focusNode, onEditingComplete) {
-                          _menuSearchController = controller;
-                          return TextField(
-                            controller: controller,
-                            focusNode: focusNode,
-                            decoration: InputDecoration(
-                              hintText: '🔍 Buscar producto en menú (ej. Tacos, Café)...',
-                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                              contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                            ),
-                          );
-                        },
-                      ),
-
-                      // Pending Products Card ("En Corto")
-                      if (_pendingOrderItems.isNotEmpty) ...[
-                        const SizedBox(height: 6),
-                        ConstrainedBox(
-                          constraints: const BoxConstraints(maxHeight: 140),
-                          child: SingleChildScrollView(
-                            physics: const BouncingScrollPhysics(),
-                            child: Column(
-                              children: _pendingOrderItems.asMap().entries.map((entry) {
-                                final index = entry.key;
-                                final item = entry.value;
-                                final name = item['name']?.toString() ?? 'Producto';
-                                final price = (item['price'] as num?)?.toDouble() ?? 0.0;
-                                final qty = (item['quantity'] as num?)?.toInt() ?? 1;
-                                final subtotal = (item['subtotal'] as num?)?.toDouble() ?? 0.0;
-                                final isTakeaway = item['is_takeaway'] == true;
-                                final notes = item['notes']?.toString() ?? '';
-
-                                return Card(
-                                  margin: const EdgeInsets.only(top: 4),
-                                  elevation: 1,
-                                  color: Colors.indigo[50],
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(10),
-                                    side: BorderSide(color: Colors.indigo[200]!),
-                                  ),
-                                  child: ListTile(
-                                    dense: true,
-                                    onTap: () => _editPendingItem(index),
-                                    leading: const Icon(Icons.edit_note, color: Colors.indigo, size: 22),
-                                    title: Text('${qty}x $name (\$$price c/u)', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                                    subtitle: Wrap(
-                                      spacing: 4,
-                                      runSpacing: 2,
-                                      children: [
-                                        if (notes.isNotEmpty) Text('Notas: $notes', style: const TextStyle(fontSize: 10)),
-                                        if (isTakeaway)
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                                            decoration: BoxDecoration(color: Colors.deepOrange[100], borderRadius: BorderRadius.circular(4)),
-                                            child: const Text('Para llevar (+\$5)', style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.deepOrange)),
-                                          ),
-                                      ],
-                                    ),
-                                    trailing: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Text(_formatCurrency(subtotal), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.indigo)),
-                                        const SizedBox(width: 4),
-                                        IconButton(
-                                          icon: const Icon(Icons.clear, size: 18, color: Colors.red),
-                                          onPressed: () => _removePendingItem(index),
+                // Operational Action Buttons: Mandar a Cocina & Cobrar
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: SizedBox(
+                          height: 54,
+                          child: OutlinedButton.icon(
+                            onPressed: _amount > 0
+                                ? () {
+                                    if (_pendingOrderItems.isEmpty) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(
+                                          content: Text('Para mandar a cocina selecciona al menos un platillo o bebida del menú.'),
+                                          backgroundColor: Colors.orange,
+                                          duration: Duration(seconds: 3),
                                         ),
-                                      ],
-                                    ),
-                                  ),
-                                );
-                              }).toList(),
+                                      );
+                                      return;
+                                    }
+                                    _sendOrderToKitchen();
+                                  }
+                                : null,
+                            icon: const Icon(Icons.soup_kitchen, size: 22),
+                            label: FittedBox(
+                              child: Text(
+                                '👨‍🍳 ${tr('send_kitchen')}',
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                              ),
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              side: BorderSide(color: _amount > 0 ? Colors.indigo : Colors.grey[300]!),
+                              foregroundColor: Colors.indigo[900],
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                             ),
                           ),
                         ),
-                      ],
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: SizedBox(
+                          height: 54,
+                          child: ElevatedButton.icon(
+                            onPressed: _amount > 0 ? _openPaymentModal : null,
+                            icon: const Icon(Icons.shopping_cart_checkout, size: 22),
+                            label: FittedBox(
+                              child: Text(
+                                '${tr('charge')} ${_formatAmount(_amount)}',
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                              ),
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.green[600],
+                              disabledBackgroundColor: Colors.grey[300],
+                              foregroundColor: Colors.white,
+                              elevation: _amount > 0 ? 3 : 0,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                            ),
+                          ),
+                        ),
+                      ),
                     ],
                   ),
                 ),
-              ),
+              ],
             ),
-
-            // POS Keypad
-            Expanded(
-              child: PosKeypad(
-                onKeyTap: _handleKeyTap,
-              ),
-            ),
-
-            // Operational Action Buttons: Mandar a Cocina & Cobrar
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: SizedBox(
-                      height: 54,
-                      child: OutlinedButton.icon(
-                        onPressed: _amount > 0
-                            ? () {
-                                if (_pendingOrderItems.isEmpty) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text('Para mandar a cocina selecciona al menos un platillo o bebida del menú.'),
-                                      backgroundColor: Colors.orange,
-                                      duration: Duration(seconds: 3),
-                                    ),
-                                  );
-                                  return;
-                                }
-                                _sendOrderToKitchen();
-                              }
-                            : null,
-                        icon: const Icon(Icons.soup_kitchen, size: 22),
-                        label: const FittedBox(
-                          child: Text(
-                            '👨‍🍳 MANDAR COCINA',
-                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                          ),
-                        ),
-                        style: OutlinedButton.styleFrom(
-                          side: BorderSide(color: _amount > 0 ? Colors.indigo : Colors.grey[300]!),
-                          foregroundColor: Colors.indigo[900],
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: SizedBox(
-                      height: 54,
-                      child: ElevatedButton.icon(
-                        onPressed: _amount > 0 ? _openPaymentModal : null,
-                        icon: const Icon(Icons.shopping_cart_checkout, size: 22),
-                        label: FittedBox(
-                          child: Text(
-                            'COBRAR ${_formatAmount(_amount)}',
-                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                          ),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green[600],
-                          disabledBackgroundColor: Colors.grey[300],
-                          foregroundColor: Colors.white,
-                          elevation: _amount > 0 ? 3 : 0,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }

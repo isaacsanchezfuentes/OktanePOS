@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import '../../../core/localization/app_locale.dart';
 
 class AmountDisplay extends StatelessWidget {
   final double amount;
@@ -22,68 +23,73 @@ class AmountDisplay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-      padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 16.0),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest.withOpacity(0.5),
-        borderRadius: BorderRadius.circular(16.0),
-        border: Border.all(
-          color: Theme.of(context).colorScheme.primary.withOpacity(0.2),
-          width: 1.5,
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    return ListenableBuilder(
+      listenable: AppLocale.instance,
+      builder: (context, _) {
+        return Container(
+          width: double.infinity,
+          margin: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+          padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 16.0),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+            borderRadius: BorderRadius.circular(16.0),
+            border: Border.all(
+              color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.2),
+              width: 1.5,
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Text(
-                'Monto a cobrar',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.grey[600],
-                  letterSpacing: 0.5,
-                ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    tr('amount_to_charge'),
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.grey[600],
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.primaryContainer,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      'MXN',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: Theme.of(context).colorScheme.onPrimaryContainer,
+                      ),
+                    ),
+                  ),
+                ],
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.primaryContainer,
-                  borderRadius: BorderRadius.circular(6),
-                ),
+              const SizedBox(height: 8),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerRight,
                 child: Text(
-                  'MXN',
+                  _formattedAmount,
                   style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    color: Theme.of(context).colorScheme.onPrimaryContainer,
+                    fontSize: 44,
+                    fontWeight: FontWeight.w800,
+                    color: amount > 0 
+                        ? Theme.of(context).colorScheme.primary 
+                        : Colors.grey[500],
+                    letterSpacing: -1,
                   ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 8),
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            alignment: Alignment.centerRight,
-            child: Text(
-              _formattedAmount,
-              style: TextStyle(
-                fontSize: 44,
-                fontWeight: FontWeight.w800,
-                color: amount > 0 
-                    ? Theme.of(context).colorScheme.primary 
-                    : Colors.grey[500],
-                letterSpacing: -1,
-              ),
-            ),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
