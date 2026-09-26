@@ -87,7 +87,7 @@ void main() {
         ),
       );
 
-      expect(find.text('MXN'), findsOneWidget);
+      expect(find.textContaining('MXN'), findsOneWidget);
       expect(find.text('Monto a cobrar'), findsOneWidget);
       expect(find.text('\$12.50'), findsOneWidget);
     });

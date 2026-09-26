@@ -17,6 +17,7 @@ import '../../cash_cut/services/shift_service.dart';
 import '../../tables/theme/table_theme.dart';
 import 'package:oktane_pos/core/localization/app_locale.dart';
 import 'package:oktane_pos/core/theme/theme_service.dart';
+import 'package:oktane_pos/core/services/currency_service.dart';
 import '../../tables/screens/tables_map_screen.dart';
 import '../../tables/services/table_service.dart';
 import 'package:oktane_pos/features/tables/models/zone_model.dart';
@@ -77,6 +78,11 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
     if (widget.initialConcept != null && widget.initialConcept!.isNotEmpty) {
       _conceptController.text = widget.initialConcept!;
     }
+
+    // Postpone background tasks until AFTER the first frame renders
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      CurrencyService.instance.updateRateInBackground();
+    });
   }
 
   double get _amount => double.tryParse(_rawInput) ?? 0.0;
@@ -662,168 +668,63 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        titleSpacing: 8,
-        title: const FittedBox(
-          fit: BoxFit.scaleDown,
-          alignment: Alignment.centerLeft,
-          child: Row(
+        titleSpacing: 16,
+        title: const Text('Cobro Rápido', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+        actions: [
+          Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.point_of_sale, color: Colors.blue),
-              SizedBox(width: 6),
-              Text('Cobro Rápido', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-            ],
-          ),
-        ),
-        actions: [
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 2),
-                  child: ListenableBuilder(
-                    listenable: AppLocale.instance,
-                    builder: (context, _) {
-                      final isEs = AppLocale.instance.currentLang == 'es';
-                      return InkWell(
-                        onTap: () => AppLocale.instance.toggle(),
-                        borderRadius: BorderRadius.circular(6),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                          decoration: BoxDecoration(
-                            color: Colors.indigo[50],
-                            borderRadius: BorderRadius.circular(6),
-                            border: Border.all(color: Colors.indigo[200]!, width: 0.8),
-                          ),
-                          child: Text(
-                            isEs ? '🇲🇽 ES' : '🇺🇸 EN',
-                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Colors.indigo),
-                          ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: ListenableBuilder(
+                  listenable: AppLocale.instance,
+                  builder: (context, _) {
+                    final isEs = AppLocale.instance.currentLang == 'es';
+                    return InkWell(
+                      onTap: () => AppLocale.instance.toggle(),
+                      borderRadius: BorderRadius.circular(6),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: Colors.indigo[50],
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: Colors.indigo[200]!, width: 0.8),
                         ),
-                      );
-                    },
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.table_restaurant),
-                  tooltip: 'Plano de Mesas',
-                  constraints: const BoxConstraints(),
-                  padding: const EdgeInsets.symmetric(horizontal: 2),
-                  visualDensity: VisualDensity.compact,
-                  onPressed: () {
-                    Navigator.push(context, MaterialPageRoute(builder: (context) => const TablesMapScreen()));
-                  },
-                ),
-                IconButton(
-                  icon: const Icon(Icons.print_outlined),
-                  tooltip: 'Impresora',
-                  constraints: const BoxConstraints(),
-                  padding: const EdgeInsets.symmetric(horizontal: 2),
-                  visualDensity: VisualDensity.compact,
-                  onPressed: () {
-                    Navigator.push(context, MaterialPageRoute(builder: (context) => const PrinterSettingsScreen()));
-                  },
-                ),
-                IconButton(
-                  icon: const Icon(Icons.receipt_long),
-                  tooltip: 'Historial',
-                  constraints: const BoxConstraints(),
-                  padding: const EdgeInsets.symmetric(horizontal: 2),
-                  visualDensity: VisualDensity.compact,
-                  onPressed: () {
-                    Navigator.push(context, MaterialPageRoute(builder: (context) => const ChargesHistoryScreen()));
-                  },
-                ),
-                IconButton(
-                  icon: const Icon(Icons.calendar_month),
-                  tooltip: 'Calendario',
-                  constraints: const BoxConstraints(),
-                  padding: const EdgeInsets.symmetric(horizontal: 2),
-                  visualDensity: VisualDensity.compact,
-                  onPressed: () {
-                    _checkManagerAccessAndNavigate(const CashCalendarScreen());
-                  },
-                ),
-                IconButton(
-                  icon: const Icon(Icons.account_balance_wallet_outlined),
-                  tooltip: 'Corte de Caja',
-                  constraints: const BoxConstraints(),
-                  padding: const EdgeInsets.symmetric(horizontal: 2),
-                  visualDensity: VisualDensity.compact,
-                  onPressed: () {
-                    _checkManagerAccessAndNavigate(const CashCutScreen());
-                  },
-                ),
-                IconButton(
-                  icon: const Icon(Icons.settings_outlined),
-                  tooltip: 'Ajustes',
-                  constraints: const BoxConstraints(),
-                  padding: const EdgeInsets.symmetric(horizontal: 2),
-                  visualDensity: VisualDensity.compact,
-                  onPressed: () {
-                    Navigator.push(context, MaterialPageRoute(builder: (context) => const SettingsScreen()));
-                  },
-                ),
-                PopupMenuButton<AppThemeMode>(
-                  icon: const Icon(Icons.palette_outlined),
-                  tooltip: 'Tema Visual',
-                  constraints: const BoxConstraints(),
-                  padding: const EdgeInsets.symmetric(horizontal: 2),
-                  onSelected: (mode) {
-                    ThemeService.instance.setTheme(mode);
-                  },
-                  itemBuilder: (context) => [
-                    const PopupMenuItem(
-                      value: AppThemeMode.slateIndustrial,
-                      child: Row(
-                        children: [
-                          Icon(Icons.circle, color: Color(0xFF0D1116), size: 16),
-                          SizedBox(width: 8),
-                          Text('Slate Industrial'),
-                        ],
+                        child: Text(
+                          isEs ? '🇲🇽 ES' : '🇺🇸 EN',
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Colors.indigo),
+                        ),
                       ),
-                    ),
-                    const PopupMenuItem(
-                      value: AppThemeMode.casioBlue,
-                      child: Row(
-                        children: [
-                          Icon(Icons.circle, color: Color(0xFF0E2C6B), size: 16),
-                          SizedBox(width: 8),
-                          Text('Casio Blue'),
-                        ],
-                      ),
-                    ),
-                    const PopupMenuItem(
-                      value: AppThemeMode.casioPink,
-                      child: Row(
-                        children: [
-                          Icon(Icons.circle, color: Color(0xFF9E1B5A), size: 16),
-                          SizedBox(width: 8),
-                          Text('Casio Pink'),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                IconButton(
-                  icon: const Icon(Icons.logout),
-                  tooltip: 'Cerrar Sesión',
-                  constraints: const BoxConstraints(),
-                  padding: const EdgeInsets.fromLTRB(2, 0, 6, 0),
-                  visualDensity: VisualDensity.compact,
-                  onPressed: () async {
-                    final navigator = Navigator.of(context);
-                    await auth.logout();
-                    navigator.pushAndRemoveUntil(
-                      MaterialPageRoute(builder: (context) => const LoginScreen()),
-                      (route) => false,
                     );
                   },
                 ),
-              ],
-            ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.settings_outlined),
+                tooltip: 'Ajustes',
+                constraints: const BoxConstraints(),
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                visualDensity: VisualDensity.compact,
+                onPressed: () {
+                  Navigator.push(context, MaterialPageRoute(builder: (context) => const SettingsScreen()));
+                },
+              ),
+              IconButton(
+                icon: const Icon(Icons.logout),
+                tooltip: 'Cerrar Sesión',
+                constraints: const BoxConstraints(),
+                padding: const EdgeInsets.fromLTRB(4, 0, 12, 0),
+                visualDensity: VisualDensity.compact,
+                onPressed: () async {
+                  final navigator = Navigator.of(context);
+                  await auth.logout();
+                  navigator.pushAndRemoveUntil(
+                    MaterialPageRoute(builder: (context) => const LoginScreen()),
+                    (route) => false,
+                  );
+                },
+              ),
+            ],
           ),
         ],
       ),
@@ -839,10 +740,19 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
             child: SafeArea(
               child: Column(
                 children: [
-                  // Amount Display Top Banner
+                  // Amount Display Top Banner with Embedded Retro LCD Action Shortcuts
                   AmountDisplay(
                     amount: _amount,
                     rawInput: _rawInput,
+                    onTapTables: () {
+                      Navigator.push(context, MaterialPageRoute(builder: (context) => const TablesMapScreen()));
+                    },
+                    onTapPrinter: () {
+                      Navigator.push(context, MaterialPageRoute(builder: (context) => const PrinterSettingsScreen()));
+                    },
+                    onTapHistory: () {
+                      Navigator.push(context, MaterialPageRoute(builder: (context) => const ChargesHistoryScreen()));
+                    },
                   ),
 
                 // Sub-strip: "MANDAR COCINA" on left, "Oktane POS" text branding on right
@@ -885,31 +795,45 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
                         ),
                       ),
                       const SizedBox(width: 12),
-                      // Stylized "Oktane POS" text branding
+                      // Stylized "Oktane POS" brand header (matching LoginScreen)
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                         decoration: BoxDecoration(
-                          color: theme.cardSurface,
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: theme.accentAction.withValues(alpha: 0.4), width: 1),
+                          color: const Color(0xFF0A1128),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: const Color(0xFF00B0FF).withValues(alpha: 0.5), width: 1),
                         ),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Icon(Icons.bolt, color: Color(0xFF00E5FF), size: 16),
-                            const SizedBox(width: 4),
                             ShaderMask(
                               shaderCallback: (bounds) => const LinearGradient(
-                                colors: [Color(0xFF00B0FF), Color(0xFF00E5FF)],
+                                begin: Alignment.bottomCenter,
+                                end: Alignment.topCenter,
+                                colors: [
+                                  Color(0xFF0D47A1),
+                                  Color(0xFF00B0FF),
+                                  Color(0xFF00E5FF),
+                                ],
                               ).createShader(bounds),
-                              child: const Text(
-                                'Oktane POS',
+                              child: const Icon(
+                                Icons.local_fire_department_rounded,
+                                size: 18,
+                                color: Colors.white,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            RichText(
+                              text: const TextSpan(
                                 style: TextStyle(
                                   fontSize: 12,
                                   fontWeight: FontWeight.w900,
-                                  color: Colors.white,
                                   letterSpacing: 0.8,
                                 ),
+                                children: [
+                                  TextSpan(text: 'Oktane', style: TextStyle(color: Colors.white)),
+                                  TextSpan(text: ' POS', style: TextStyle(color: Color(0xFF00E5FF))),
+                                ],
                               ),
                             ),
                           ],

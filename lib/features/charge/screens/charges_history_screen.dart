@@ -13,6 +13,8 @@ import '../../tables/services/table_service.dart';
 import 'package:oktane_pos/features/tables/models/zone_model.dart';
 import 'package:oktane_pos/features/tables/models/table_model.dart';
 import 'package:oktane_pos/features/tables/screens/table_order_detail_screen.dart';
+import 'package:oktane_pos/features/cash_cut/screens/cash_calendar_screen.dart';
+import 'package:oktane_pos/features/cash_cut/screens/cash_cut_screen.dart';
 
 class ChargesHistoryScreen extends StatefulWidget {
   final ChargeService? chargeService;
@@ -200,6 +202,22 @@ class _ChargesHistoryScreenState extends State<ChargesHistoryScreen> {
       appBar: AppBar(
         title: const Text('Historial de Cobros', style: TextStyle(fontWeight: FontWeight.bold)),
         elevation: 1,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.calendar_month),
+            tooltip: 'Calendario de Ventas',
+            onPressed: () {
+              Navigator.push(context, MaterialPageRoute(builder: (context) => const CashCalendarScreen()));
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.account_balance_wallet_outlined),
+            tooltip: 'Corte de Caja',
+            onPressed: () {
+              Navigator.push(context, MaterialPageRoute(builder: (context) => const CashCutScreen()));
+            },
+          ),
+        ],
       ),
       body: RefreshIndicator(
         onRefresh: () async {

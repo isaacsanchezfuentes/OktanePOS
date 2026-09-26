@@ -5,14 +5,14 @@ import 'package:oktane_pos/core/theme/theme_service.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  group('Casio Scientific POS Themes & ThemeData Tests', () {
-    test('Default theme is Slate Industrial with currentThemeData and metallic gradient', () {
+  group('Metallic Chassis & Clear LCD Theme Service Tests', () {
+    test('Default theme is Slate Industrial with metallic specular gradient and clear LCD', () {
       final theme = ThemeService.instance;
       expect(theme.currentTheme, AppThemeMode.slateIndustrial);
       expect(theme.scaffoldBg, const Color(0xFF262E35));
       expect(theme.cardSurface, const Color(0xFF1C2229));
-      expect(theme.displayBg, const Color(0xFF1E252D));
-      expect(theme.displayText, const Color(0xFFECEFF2));
+      expect(theme.displayBg, const Color(0xFFD9EBD9));
+      expect(theme.displayText, const Color(0xFF0F172A));
 
       final themeData = theme.currentThemeData;
       expect(themeData.scaffoldBackgroundColor, const Color(0xFF262E35));
@@ -25,11 +25,11 @@ void main() {
       expect(theme.currentChassisGradient, isA<LinearGradient>());
     });
 
-    test('Casio Blue theme provides green LCD display and white pad button background', () {
+    test('Classic Blue theme provides specular metallic gradient and clear LCD display', () {
       final theme = ThemeService.instance;
-      theme.setTheme(AppThemeMode.casioBlue);
+      theme.setTheme(AppThemeMode.classicBlue);
 
-      expect(theme.currentTheme, AppThemeMode.casioBlue);
+      expect(theme.currentTheme, AppThemeMode.classicBlue);
       expect(theme.scaffoldBg, const Color(0xFF13428E));
       expect(theme.cardSurface, const Color(0xFF1B365D));
       expect(theme.displayBg, const Color(0xFFD9EBD9));
@@ -41,14 +41,14 @@ void main() {
       expect(themeData.scaffoldBackgroundColor, const Color(0xFF13428E));
     });
 
-    test('Casio Pink theme provides light LCD display and white pad button background', () {
+    test('Classic Pink theme provides specular metallic gradient and clear LCD display', () {
       final theme = ThemeService.instance;
-      theme.setTheme(AppThemeMode.casioPink);
+      theme.setTheme(AppThemeMode.classicPink);
 
-      expect(theme.currentTheme, AppThemeMode.casioPink);
+      expect(theme.currentTheme, AppThemeMode.classicPink);
       expect(theme.scaffoldBg, const Color(0xFF9E1F5A));
       expect(theme.cardSurface, const Color(0xFF7A1444));
-      expect(theme.displayBg, const Color(0xFFD4E7D6));
+      expect(theme.displayBg, const Color(0xFFD9EBD9));
       expect(theme.padButtonBg, const Color(0xFFFFFFFF));
 
       // Reset to Slate Industrial

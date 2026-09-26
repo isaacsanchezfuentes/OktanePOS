@@ -7,6 +7,7 @@ import '../../auth/services/rbac_service.dart';
 import '../../printer/screens/printer_settings_screen.dart';
 import '../../cash_cut/screens/shifts_history_screen.dart';
 import '../../cash_cut/services/shift_policy_service.dart';
+import 'package:oktane_pos/core/theme/theme_service.dart';
 import 'menu_management_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -244,6 +245,76 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  String _getThemeName(AppThemeMode mode) {
+    switch (mode) {
+      case AppThemeMode.slateIndustrial:
+        return 'Slate Industrial (Titanio Cepillado)';
+      case AppThemeMode.classicBlue:
+        return 'Azul Clásico (Aluminio Anodizado)';
+      case AppThemeMode.classicPink:
+        return 'Rosa Clásico (Aluminio Magenta)';
+    }
+  }
+
+  void _showThemeSelectionDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.palette, color: Colors.amber),
+            SizedBox(width: 8),
+            Text('Personalización / Apariencia', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            RadioListTile<AppThemeMode>(
+              title: const Text('Slate Industrial (Titanio Cepillado)'),
+              value: AppThemeMode.slateIndustrial,
+              groupValue: ThemeService.instance.currentTheme,
+              onChanged: (val) {
+                if (val != null) {
+                  ThemeService.instance.setTheme(val);
+                  Navigator.pop(ctx);
+                  setState(() {});
+                }
+              },
+            ),
+            RadioListTile<AppThemeMode>(
+              title: const Text('Azul Clásico (Aluminio Anodizado)'),
+              value: AppThemeMode.classicBlue,
+              groupValue: ThemeService.instance.currentTheme,
+              onChanged: (val) {
+                if (val != null) {
+                  ThemeService.instance.setTheme(val);
+                  Navigator.pop(ctx);
+                  setState(() {});
+                }
+              },
+            ),
+            RadioListTile<AppThemeMode>(
+              title: const Text('Rosa Clásico (Aluminio Magenta)'),
+              value: AppThemeMode.classicPink,
+              groupValue: ThemeService.instance.currentTheme,
+              onChanged: (val) {
+                if (val != null) {
+                  ThemeService.instance.setTheme(val);
+                  Navigator.pop(ctx);
+                  setState(() {});
+                }
+              },
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cerrar')),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final currentUser = Supabase.instance.client.auth.currentUser;
@@ -270,6 +341,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           const SizedBox(height: 16),
+
+          // Theme Customization Section
+          ListTile(
+            leading: const Icon(Icons.palette, color: Colors.amber),
+            title: const Text('Personalización / Apariencia', style: TextStyle(fontWeight: FontWeight.bold)),
+            subtitle: Text(_getThemeName(ThemeService.instance.currentTheme)),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: _showThemeSelectionDialog,
+          ),
+          const Divider(),
 
           // Menu Catalog Management
           ListTile(
