@@ -50,35 +50,46 @@ class PosKeypad extends StatelessWidget {
   }
 
   Widget _buildKeyButton(BuildContext context, String key) {
-    final theme = ThemeService.instance;
     Widget content;
-    Color backgroundColor = theme.padButtonBg;
-    Color foregroundColor = theme.padButtonText;
+    Color backgroundColor = const Color(0xFFFFFFFF); // BLANCO PURO OBLIGATORIO en todos los temas
+    Color foregroundColor = const Color(0xFF111827); // NEGRO GRAFITO PROFUNDO OBLIGATORIO
+    Border border = Border.all(color: const Color(0xFFCBD5E1), width: 1.5);
 
     switch (key) {
       case 'BACKSPACE':
-        content = const Icon(Icons.backspace_outlined, size: 24);
-        backgroundColor = theme.padButtonBg;
-        foregroundColor = ThemeService.keyDEL; // Ámbar/Naranja Casio (0xFFF59E0B)
+        content = const Icon(Icons.backspace_outlined, size: 22, color: Colors.white);
+        backgroundColor = ThemeService.keyDEL; // Naranja Vivo Casio (0xFFEA580C)
+        foregroundColor = Colors.white;
+        border = Border.all(color: Colors.transparent);
         break;
       case 'CLEAR':
         content = const Text(
           'C',
-          style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+          style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
         );
-        backgroundColor = ThemeService.keyC.withValues(alpha: 0.15); // Alerta suave
-        foregroundColor = ThemeService.keyC; // Rojo suave Casio (0xFFEF4444)
+        backgroundColor = ThemeService.keyC; // Rojo Intenso Casio (0xFFDC2626)
+        foregroundColor = Colors.white;
+        border = Border.all(color: Colors.transparent);
+        break;
+      case 'AC':
+        content = const Text(
+          'AC',
+          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
+        );
+        backgroundColor = ThemeService.keyAC; // Verde Esmeralda Casio (0xFF16A34A)
+        foregroundColor = Colors.white;
+        border = Border.all(color: Colors.transparent);
         break;
       default:
         content = Text(
           key,
-          style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+          style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF111827)),
         );
     }
 
     return Material(
       color: backgroundColor,
-      elevation: key == 'BACKSPACE' || key == 'CLEAR' ? 1 : 2,
+      elevation: 2,
       borderRadius: BorderRadius.circular(12),
       child: InkWell(
         onTap: () => onKeyTap(key),
@@ -87,10 +98,7 @@ class PosKeypad extends StatelessWidget {
           alignment: Alignment.center,
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: Colors.grey[700]!.withValues(alpha: 0.3),
-              width: 0.8,
-            ),
+            border: border,
           ),
           child: DefaultTextStyle(
             style: TextStyle(color: foregroundColor),

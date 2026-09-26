@@ -5,42 +5,51 @@ import 'package:oktane_pos/core/theme/theme_service.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  group('Casio Scientific POS Themes & Keypad Tokens Tests', () {
-    test('Default theme is Slate Industrial with functional key constants', () {
+  group('Casio Scientific POS Themes & ThemeData Tests', () {
+    test('Default theme is Slate Industrial with currentThemeData and metallic gradient', () {
       final theme = ThemeService.instance;
       expect(theme.currentTheme, AppThemeMode.slateIndustrial);
-      expect(theme.scaffoldBg, const Color(0xFF0D1116));
+      expect(theme.scaffoldBg, const Color(0xFF262E35));
+      expect(theme.cardSurface, const Color(0xFF1C2229));
       expect(theme.displayBg, const Color(0xFF1E252D));
       expect(theme.displayText, const Color(0xFFECEFF2));
 
-      expect(ThemeService.accentCobrar, const Color(0xFF2E90E5));
-      expect(ThemeService.keyAC, const Color(0xFF22C55E));
-      expect(ThemeService.keyDEL, const Color(0xFFF59E0B));
-      expect(ThemeService.keyC, const Color(0xFFEF4444));
+      final themeData = theme.currentThemeData;
+      expect(themeData.scaffoldBackgroundColor, const Color(0xFF262E35));
+      expect(themeData.cardColor, const Color(0xFF1C2229));
+
+      expect(ThemeService.accentCobrar, const Color(0xFF2563EB));
+      expect(ThemeService.keyAC, const Color(0xFF16A34A));
+      expect(ThemeService.keyDEL, const Color(0xFFEA580C));
+      expect(ThemeService.keyC, const Color(0xFFDC2626));
+      expect(theme.currentChassisGradient, isA<LinearGradient>());
     });
 
-    test('Casio Blue theme provides green LCD background and dark LCD ink', () {
+    test('Casio Blue theme provides green LCD display and white pad button background', () {
       final theme = ThemeService.instance;
       theme.setTheme(AppThemeMode.casioBlue);
 
       expect(theme.currentTheme, AppThemeMode.casioBlue);
       expect(theme.scaffoldBg, const Color(0xFF13428E));
-      expect(theme.displayBg, const Color(0xFFCFE1D2));
-      expect(theme.displayText, const Color(0xFF101913));
-      expect(theme.padButtonBg, const Color(0xFFE8EEF5));
-      expect(theme.padButtonText, const Color(0xFF102A54));
+      expect(theme.cardSurface, const Color(0xFF1B365D));
+      expect(theme.displayBg, const Color(0xFFD9EBD9));
+      expect(theme.displayText, const Color(0xFF0F172A));
+      expect(theme.padButtonBg, const Color(0xFFFFFFFF));
+      expect(theme.padButtonText, const Color(0xFF111827));
+
+      final themeData = theme.currentThemeData;
+      expect(themeData.scaffoldBackgroundColor, const Color(0xFF13428E));
     });
 
-    test('Casio Pink theme provides light LCD background and deep pink scaffold', () {
+    test('Casio Pink theme provides light LCD display and white pad button background', () {
       final theme = ThemeService.instance;
       theme.setTheme(AppThemeMode.casioPink);
 
       expect(theme.currentTheme, AppThemeMode.casioPink);
       expect(theme.scaffoldBg, const Color(0xFF9E1F5A));
-      expect(theme.displayBg, const Color(0xFFD6E8D8));
-      expect(theme.displayText, const Color(0xFF1A211B));
-      expect(theme.padButtonBg, const Color(0xFFFBE4EE));
-      expect(theme.padButtonText, const Color(0xFF4A0A28));
+      expect(theme.cardSurface, const Color(0xFF7A1444));
+      expect(theme.displayBg, const Color(0xFFD4E7D6));
+      expect(theme.padButtonBg, const Color(0xFFFFFFFF));
 
       // Reset to Slate Industrial
       theme.setTheme(AppThemeMode.slateIndustrial);

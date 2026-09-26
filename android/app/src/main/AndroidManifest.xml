@@ -17,14 +17,12 @@
         android:label="Oktane POS"
         android:name="${applicationName}"
         tools:ignore="MissingClass"
+        tools:targetApi="33"
         android:icon="@mipmap/ic_launcher"
         android:largeHeap="true"
         android:allowBackup="false"
-        android:fullBackupContent="false">
-
-        <meta-data
-            android:name="io.flutter.embedding.android.EnableImpeller"
-            android:value="false" />
+        android:fullBackupContent="false"
+        android:enableOnBackInvokedCallback="true">
 
         <activity
             android:name=".MainActivity"

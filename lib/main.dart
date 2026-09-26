@@ -6,6 +6,7 @@ import 'package:oktane_pos/data/datasources/local_storage.dart';
 import 'package:oktane_pos/core/api/api_client.dart';
 import 'package:oktane_pos/core/api/app_config.dart';
 import 'package:oktane_pos/core/api/supabase_config.dart';
+import 'package:oktane_pos/core/theme/theme_service.dart';
 import 'package:oktane_pos/providers/auth_provider.dart';
 import 'package:oktane_pos/providers/paquetes_provider.dart';
 import 'package:oktane_pos/ui/screens/login_screen.dart';
@@ -56,20 +57,22 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: AppConfig.appName,
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
-        useMaterial3: true,
-      ),
-      initialRoute: Supabase.instance.client.auth.currentSession != null
-          ? '/charge'
-          : '/login',
-      routes: {
-        '/login': (context) => const LoginScreen(),
-        '/charge': (context) => const QuickChargeScreen(),
-        '/routes': (context) => const SeleccionarRutaScreen(),
+    return ListenableBuilder(
+      listenable: ThemeService.instance,
+      builder: (context, _) {
+        return MaterialApp(
+          title: AppConfig.appName,
+          debugShowCheckedModeBanner: false,
+          theme: ThemeService.instance.currentThemeData,
+          initialRoute: Supabase.instance.client.auth.currentSession != null
+              ? '/charge'
+              : '/login',
+          routes: {
+            '/login': (context) => const LoginScreen(),
+            '/charge': (context) => const QuickChargeScreen(),
+            '/routes': (context) => const SeleccionarRutaScreen(),
+          },
+        );
       },
     );
   }

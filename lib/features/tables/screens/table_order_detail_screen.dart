@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/zone_model.dart';
 import '../models/table_model.dart';
 import '../services/table_service.dart';
+import '../theme/table_theme.dart';
 import '../../auth/services/rbac_service.dart';
 import '../../menu/models/menu_item_model.dart';
 import '../../menu/services/menu_service.dart';
@@ -61,7 +62,7 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
     _currentZone = widget.zone;
     _loadAllTables();
     _newRoundItems.addAll(_tableService.getTableDraft(_currentTable.id));
-    _loadLiveTableCharge();
+    Future.microtask(() => _loadLiveTableCharge());
   }
 
   List<Map<String, dynamic>> _parseItemsFromConcept(String concept) {
@@ -702,32 +703,37 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
           ),
         ],
       ),
+      resizeToAvoidBottomInset: false,
       body: SafeArea(
         child: Column(
           children: [
             // Top Context Bar: Waiter Selector
             Container(
-              color: Colors.grey[100],
+              color: TableTheme.cardSurface,
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: Row(
                 children: [
-                  const Icon(Icons.person_pin, color: Colors.indigo, size: 20),
+                  const Icon(Icons.person_pin, color: TableTheme.occupiedBorder, size: 20),
                   const SizedBox(width: 8),
-                  const Text('Mesero a cargo:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                  const Text('Mesero a cargo:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: TableTheme.textPrimary)),
                   const SizedBox(width: 8),
                   Expanded(
                     child: DropdownButtonFormField<String>(
                       initialValue: _selectedWaiterName ?? activeUserName,
                       isExpanded: true,
-                      decoration: const InputDecoration(
-                        border: OutlineInputBorder(),
-                        contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      dropdownColor: TableTheme.cardSurface,
+                      iconEnabledColor: TableTheme.textSecondary,
+                      style: TextStyle(color: TableTheme.textPrimary, fontSize: 12, fontWeight: FontWeight.bold),
+                      decoration: InputDecoration(
+                        border: const OutlineInputBorder(),
+                        enabledBorder: const OutlineInputBorder(borderSide: BorderSide(color: TableTheme.borderStrong)),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                         isDense: true,
                       ),
                       items: waitersList.map((w) {
                         return DropdownMenuItem<String>(
                           value: w['name'],
-                          child: Text(w['name']!, style: const TextStyle(fontSize: 12), overflow: TextOverflow.ellipsis),
+                          child: Text(w['name']!, style: TextStyle(color: TableTheme.textPrimary, fontSize: 12), overflow: TextOverflow.ellipsis),
                         );
                       }).toList(),
                       onChanged: (val) {
@@ -787,7 +793,7 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
                         const Flexible(
                           child: Text(
                             ' Por Enviar (Nueva Ronda)',
-                            style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.indigo),
+                            style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: TableTheme.textPrimary),
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
@@ -920,7 +926,7 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
                       children: [
                         const Text(
                           ' Rondas Previas / Servidas',
-                          style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black87),
+                          style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: TableTheme.textPrimary),
                         ),
                         if (_previousRoundsTotal > 0)
                           Text(

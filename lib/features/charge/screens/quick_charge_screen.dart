@@ -832,14 +832,18 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
         listenable: Listenable.merge([AppLocale.instance, ThemeService.instance]),
         builder: (context, _) {
           final theme = ThemeService.instance;
-          return SafeArea(
-            child: Column(
-              children: [
-                // Amount Display Top Banner
-                AmountDisplay(
-                  amount: _amount,
-                  rawInput: _rawInput,
-                ),
+          return Container(
+            decoration: BoxDecoration(
+              gradient: theme.currentChassisGradient,
+            ),
+            child: SafeArea(
+              child: Column(
+                children: [
+                  // Amount Display Top Banner
+                  AmountDisplay(
+                    amount: _amount,
+                    rawInput: _rawInput,
+                  ),
 
                 // Sub-strip: "MANDAR COCINA" on left, "Oktane POS" text branding on right
                 Padding(
@@ -935,17 +939,17 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
                                   initialValue: _selectedTableLabel,
                                   isExpanded: true,
                                   dropdownColor: theme.cardSurface,
-                                  iconEnabledColor: TableTheme.textSecondary,
-                                  style: const TextStyle(color: TableTheme.textPrimary, fontSize: 12, fontWeight: FontWeight.bold),
+                                  iconEnabledColor: const Color(0xFFFFFFFF),
+                                  style: const TextStyle(color: Color(0xFFFFFFFF), fontSize: 12, fontWeight: FontWeight.w600),
                                   decoration: InputDecoration(
                                     labelText: tr('table_location'),
-                                    labelStyle: const TextStyle(color: TableTheme.textSecondary, fontSize: 12),
+                                    labelStyle: const TextStyle(color: Color(0xFFE2E8F0), fontSize: 12),
                                     border: const OutlineInputBorder(),
                                     enabledBorder: const OutlineInputBorder(borderSide: BorderSide(color: TableTheme.borderStrong)),
                                     focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: theme.accentAction, width: 1.5)),
                                     contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                                   ),
-                                  items: availableTables.map((t) => DropdownMenuItem(value: t, child: Text(t, style: const TextStyle(color: TableTheme.textPrimary, fontSize: 12)))).toList(),
+                                  items: availableTables.map((t) => DropdownMenuItem(value: t, child: Text(t, style: const TextStyle(color: Color(0xFFFFFFFF), fontSize: 12, fontWeight: FontWeight.w600)))).toList(),
                                   onChanged: (val) {
                                     if (val != null) setState(() => _selectedTableLabel = val);
                                   },
@@ -957,11 +961,11 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
                                   initialValue: _selectedWaiterName ?? activeUserName,
                                   isExpanded: true,
                                   dropdownColor: theme.cardSurface,
-                                  iconEnabledColor: TableTheme.textSecondary,
-                                  style: const TextStyle(color: TableTheme.textPrimary, fontSize: 12, fontWeight: FontWeight.bold),
+                                  iconEnabledColor: const Color(0xFFFFFFFF),
+                                  style: const TextStyle(color: Color(0xFFFFFFFF), fontSize: 12, fontWeight: FontWeight.w600),
                                   decoration: InputDecoration(
                                     labelText: tr('waiter_service'),
-                                    labelStyle: const TextStyle(color: TableTheme.textSecondary, fontSize: 12),
+                                    labelStyle: const TextStyle(color: Color(0xFFE2E8F0), fontSize: 12),
                                     border: const OutlineInputBorder(),
                                     enabledBorder: const OutlineInputBorder(borderSide: BorderSide(color: TableTheme.borderStrong)),
                                     focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: theme.accentAction, width: 1.5)),
@@ -970,7 +974,7 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
                                   items: waitersList.map((w) {
                                     return DropdownMenuItem<String>(
                                       value: w['name'],
-                                      child: Text(w['name']!, style: const TextStyle(color: TableTheme.textPrimary, fontSize: 12), overflow: TextOverflow.ellipsis),
+                                      child: Text(w['name']!, style: const TextStyle(color: Color(0xFFFFFFFF), fontSize: 12, fontWeight: FontWeight.w600), overflow: TextOverflow.ellipsis),
                                     );
                                   }).toList(),
                                   onChanged: (val) {
@@ -1052,22 +1056,23 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
 
                                     return Card(
                                       margin: const EdgeInsets.only(top: 4),
-                                      elevation: 1,
-                                      color: Colors.indigo[50],
+                                      elevation: 2,
+                                      color: const Color(0xFFF8FAFC),
                                       shape: RoundedRectangleBorder(
                                         borderRadius: BorderRadius.circular(10),
-                                        side: BorderSide(color: Colors.indigo[200]!),
+                                        side: const BorderSide(color: Color(0xFFCBD5E1)),
                                       ),
                                       child: ListTile(
                                         dense: true,
                                         onTap: () => _editPendingItem(index),
-                                        leading: const Icon(Icons.edit_note, color: Colors.indigo, size: 22),
-                                        title: Text('${qty}x $name (\$$price c/u)', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                                        leading: const Icon(Icons.edit_note, color: Color(0xFF2563EB), size: 22),
+                                        title: Text('${qty}x $name', style: const TextStyle(color: Color(0xFF0F172A), fontWeight: FontWeight.bold, fontSize: 13)),
                                         subtitle: Wrap(
                                           spacing: 4,
                                           runSpacing: 2,
                                           children: [
-                                            if (notes.isNotEmpty) Text('Notas: $notes', style: const TextStyle(fontSize: 10)),
+                                            Text('\$$price c/u', style: const TextStyle(color: Color(0xFF475569), fontSize: 11, fontWeight: FontWeight.w600)),
+                                            if (notes.isNotEmpty) Text('• $notes', style: const TextStyle(color: Color(0xFF475569), fontSize: 10)),
                                             if (isTakeaway)
                                               Container(
                                                 padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
@@ -1079,10 +1084,10 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
                                         trailing: Row(
                                           mainAxisSize: MainAxisSize.min,
                                           children: [
-                                            Text(_formatCurrency(subtotal), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.indigo)),
+                                            Text(_formatCurrency(subtotal), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF2563EB))),
                                             const SizedBox(width: 4),
                                             IconButton(
-                                              icon: const Icon(Icons.clear, size: 18, color: Colors.red),
+                                              icon: const Icon(Icons.clear, size: 18, color: Color(0xFFDC2626)),
                                               onPressed: () => _removePendingItem(index),
                                             ),
                                           ],
@@ -1134,9 +1139,10 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
                 ),
               ],
             ),
-          );
-        },
-      ),
-    );
-  }
+          ),
+        );
+      },
+    ),
+  );
+}
 }
