@@ -338,12 +338,17 @@ class _TablesMapScreenState extends State<TablesMapScreen> with SingleTickerProv
           tabs: _zones.map((z) => Tab(text: z.name)).toList(),
         ),
       ),
-      body: TabBarView(
-        controller: _tabController,
-        children: _zones.map((zone) {
-          final tables = _tableService.getTablesByZone(zone.id);
-          return _buildZoneCanvas(zone, tables);
-        }).toList(),
+      body: ListenableBuilder(
+        listenable: _tableService,
+        builder: (context, _) {
+          return TabBarView(
+            controller: _tabController,
+            children: _zones.map((zone) {
+              final tables = _tableService.getTablesByZone(zone.id);
+              return _buildZoneCanvas(zone, tables);
+            }).toList(),
+          );
+        },
       ),
     );
   }

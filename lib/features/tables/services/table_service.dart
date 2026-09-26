@@ -5,6 +5,14 @@ import '../models/table_model.dart';
 import '../../charge/services/charge_service.dart';
 
 class TableService extends ChangeNotifier {
+  static final TableService _instance = TableService._internal();
+
+  factory TableService({SupabaseClient? client}) => _instance;
+
+  TableService._internal() {
+    _initDefaultTables();
+  }
+
   final List<ZoneModel> _zones = const [
     ZoneModel(id: '11111111-1111-4000-8000-000000000001', name: 'Salón Principal', sortOrder: 1),
     ZoneModel(id: '11111111-1111-4000-8000-000000000002', name: 'Terraza Exterior', sortOrder: 2),
@@ -13,10 +21,6 @@ class TableService extends ChangeNotifier {
 
   late final Map<String, List<RestaurantTableModel>> _tablesByZone;
   final Map<String, List<Map<String, dynamic>>> _tableDrafts = {};
-
-  TableService() {
-    _initDefaultTables();
-  }
 
   /// Public method to notify listeners on table updates from UI screens
   void notifyTableUpdate() {
@@ -81,7 +85,7 @@ class TableService extends ChangeNotifier {
           final id = row['id']?.toString();
           final zoneId = row['zone_id']?.toString() ?? '11111111-1111-4000-8000-000000000001';
           final number = _parseInt(row['table_number'], 1);
-          final status = row['status']?.toString() ?? 'free';
+          final dbStatus = row['status']?.toString() ?? 'free';
 
           if (id != null) {
             final targetZoneKey = _tablesByZone.containsKey(zoneId) ? zoneId : _tablesByZone.keys.first;
@@ -89,6 +93,9 @@ class TableService extends ChangeNotifier {
             final idx = list.indexWhere((t) => t.tableNumber == number || t.id == id);
             if (idx != -1) {
               final old = list[idx];
+              final hasActiveTickets = old.activeTickets.isNotEmpty;
+              final effectiveStatus = hasActiveTickets ? 'occupied' : 'free';
+
               list[idx] = RestaurantTableModel(
                 id: id,
                 zoneId: targetZoneKey,
@@ -97,7 +104,7 @@ class TableService extends ChangeNotifier {
                 shape: old.shape,
                 posX: old.posX,
                 posY: old.posY,
-                status: status,
+                status: effectiveStatus,
                 assignedWaiter: old.assignedWaiter,
                 activeTickets: old.activeTickets,
               );
@@ -134,26 +141,42 @@ class TableService extends ChangeNotifier {
   }
 
   void updateTablePosition(String zoneId, String tableId, double posX, double posY) {
-    final list = _tablesByZone[zoneId];
-    if (list != null) {
-      final index = list.indexWhere((t) => t.id == tableId);
-      if (index != -1) {
-        final table = list[index];
-        list[index] = RestaurantTableModel(
-          id: table.id,
-          zoneId: table.zoneId,
-          tableNumber: table.tableNumber,
-          seats: table.seats,
-          shape: table.shape,
-          posX: posX.clamp(0.05, 0.90),
-          posY: posY.clamp(0.05, 0.90),
-          status: table.status,
-          assignedWaiter: table.assignedWaiter,
-          activeTickets: table.activeTickets,
-        );
-        debugPrint('📍 Posición actualizada para Mesa ${table.tableNumber}: posX=$posX, posY=$posY');
-        notifyListeners();
+    String? targetZoneKey;
+    int index = -1;
+
+    if (_tablesByZone.containsKey(zoneId)) {
+      index = _tablesByZone[zoneId]!.indexWhere((t) => t.id == tableId);
+      if (index != -1) targetZoneKey = zoneId;
+    }
+
+    if (targetZoneKey == null) {
+      for (final entry in _tablesByZone.entries) {
+        final idx = entry.value.indexWhere((t) => t.id == tableId);
+        if (idx != -1) {
+          targetZoneKey = entry.key;
+          index = idx;
+          break;
+        }
       }
+    }
+
+    if (targetZoneKey != null && index != -1) {
+      final list = _tablesByZone[targetZoneKey]!;
+      final table = list[index];
+      list[index] = RestaurantTableModel(
+        id: table.id,
+        zoneId: table.zoneId,
+        tableNumber: table.tableNumber,
+        seats: table.seats,
+        shape: table.shape,
+        posX: posX.clamp(0.05, 0.90),
+        posY: posY.clamp(0.05, 0.90),
+        status: table.status,
+        assignedWaiter: table.assignedWaiter,
+        activeTickets: table.activeTickets,
+      );
+      debugPrint('📍 Posición actualizada para Mesa ${table.tableNumber}: posX=$posX, posY=$posY');
+      notifyListeners();
     }
   }
 
@@ -166,122 +189,172 @@ class TableService extends ChangeNotifier {
     required String waiterName,
     ChargeService? chargeService,
   }) async {
-    final list = _tablesByZone[zoneId];
-    if (list != null) {
-      final index = list.indexWhere((t) => t.id == tableId);
-      if (index != -1) {
-        final table = list[index];
-        final isPeerSupport = table.assignedWaiter != null && table.assignedWaiter != waiterName;
-        final ticketId = 'tk-${DateTime.now().millisecondsSinceEpoch}';
+    String? targetZoneKey;
+    int index = -1;
 
-        final newTicket = {
-          'ticket_id': ticketId,
-          'amount': amount,
-          'concept': concept,
-          'waiter_id': waiterId,
-          'waiter_name': waiterName,
-          'is_peer_support': isPeerSupport,
-          'created_at': DateTime.now().toIso8601String(),
-        };
+    if (_tablesByZone.containsKey(zoneId)) {
+      index = _tablesByZone[zoneId]!.indexWhere((t) => t.id == tableId);
+      if (index != -1) targetZoneKey = zoneId;
+    }
 
-        final updatedTickets = List<Map<String, dynamic>>.from(table.activeTickets)..add(newTicket);
-
-        list[index] = RestaurantTableModel(
-          id: table.id,
-          zoneId: table.zoneId,
-          tableNumber: table.tableNumber,
-          seats: table.seats,
-          shape: table.shape,
-          posX: table.posX,
-          posY: table.posY,
-          status: 'occupied',
-          assignedWaiter: table.assignedWaiter ?? waiterName,
-          activeTickets: updatedTickets,
-        );
-
-        debugPrint('🎟️ Ticket agregado a Mesa ${table.tableNumber}. Es Apoyo: $isPeerSupport');
-        notifyListeners();
-
-        final String tableLabel = 'Mesa #${table.tableNumber}';
-
-        // Create or update single unified pending charge record
-        try {
-          ChargeService? cs = chargeService;
-          if (cs == null) {
-            try {
-              cs = ChargeService();
-            } catch (e) {
-              debugPrint('ℹ️ Instancia de Supabase no inicializada en tests unitarios. Omitiendo registro de charge.');
-              cs = null;
-            }
-          }
-          if (cs != null) {
-            await cs.createOrUpdatePendingChargeForTable(
-              tableId: tableId,
-              newRoundAmount: amount,
-              userId: waiterId,
-              roundConcept: concept,
-              tableLabel: tableLabel,
-            );
-          }
-        } catch (e) {
-          debugPrint('ℹ️ Error al registrar charge unificado pendiente en tests: $e');
+    if (targetZoneKey == null) {
+      for (final entry in _tablesByZone.entries) {
+        final idx = entry.value.indexWhere((t) => t.id == tableId);
+        if (idx != -1) {
+          targetZoneKey = entry.key;
+          index = idx;
+          break;
         }
       }
+    }
+
+    if (targetZoneKey != null && index != -1) {
+      final list = _tablesByZone[targetZoneKey]!;
+      final table = list[index];
+      final isPeerSupport = table.assignedWaiter != null && table.assignedWaiter != waiterName;
+      final ticketId = 'tk-${DateTime.now().millisecondsSinceEpoch}';
+
+      final newTicket = {
+        'ticket_id': ticketId,
+        'amount': amount,
+        'concept': concept,
+        'waiter_id': waiterId,
+        'waiter_name': waiterName,
+        'is_peer_support': isPeerSupport,
+        'created_at': DateTime.now().toIso8601String(),
+      };
+
+      final updatedTickets = List<Map<String, dynamic>>.from(table.activeTickets)..add(newTicket);
+
+      list[index] = RestaurantTableModel(
+        id: table.id,
+        zoneId: table.zoneId,
+        tableNumber: table.tableNumber,
+        seats: table.seats,
+        shape: table.shape,
+        posX: table.posX,
+        posY: table.posY,
+        status: 'occupied',
+        assignedWaiter: table.assignedWaiter ?? waiterName,
+        activeTickets: updatedTickets,
+      );
+
+      debugPrint('🎟️ Ticket agregado a Mesa #${table.tableNumber} (${table.id}). Total tickets: ${updatedTickets.length}. Estatus: occupied. Es Apoyo: $isPeerSupport');
+      notifyListeners();
+
+      final String tableLabel = 'Mesa #${table.tableNumber}';
+
+      // Create or update single unified pending charge record
+      try {
+        ChargeService? cs = chargeService;
+        if (cs == null) {
+          try {
+            cs = ChargeService();
+          } catch (e) {
+            debugPrint('ℹ️ Instancia de Supabase no inicializada en tests unitarios. Omitiendo registro de charge.');
+            cs = null;
+          }
+        }
+        if (cs != null) {
+          await cs.createOrUpdatePendingChargeForTable(
+            tableId: tableId,
+            newRoundAmount: amount,
+            userId: waiterId,
+            roundConcept: concept,
+            tableLabel: tableLabel,
+          );
+        }
+      } catch (e) {
+        debugPrint('ℹ️ Error al registrar charge unificado pendiente en tests: $e');
+      }
+    } else {
+      debugPrint('⚠️ No se encontró la mesa $tableId en ninguna zona para asociar el ticket');
     }
   }
 
   void removeTicketAndCheckFree(String zoneId, String tableId, String ticketId) {
-    final list = _tablesByZone[zoneId];
-    if (list != null) {
-      final index = list.indexWhere((t) => t.id == tableId);
-      if (index != -1) {
-        final table = list[index];
-        final updatedTickets = table.activeTickets.where((t) => t['ticket_id'] != ticketId).toList();
+    String? targetZoneKey;
+    int index = -1;
 
-        final newStatus = updatedTickets.isEmpty ? 'free' : 'occupied';
-        final newWaiter = updatedTickets.isEmpty ? null : table.assignedWaiter;
+    if (_tablesByZone.containsKey(zoneId)) {
+      index = _tablesByZone[zoneId]!.indexWhere((t) => t.id == tableId);
+      if (index != -1) targetZoneKey = zoneId;
+    }
 
-        list[index] = RestaurantTableModel(
-          id: table.id,
-          zoneId: table.zoneId,
-          tableNumber: table.tableNumber,
-          seats: table.seats,
-          shape: table.shape,
-          posX: table.posX,
-          posY: table.posY,
-          status: newStatus,
-          assignedWaiter: newWaiter,
-          activeTickets: updatedTickets,
-        );
-
-        debugPrint('✅ Ticket $ticketId removido de Mesa ${table.tableNumber}. Nuevo estatus: $newStatus');
-        notifyListeners();
+    if (targetZoneKey == null) {
+      for (final entry in _tablesByZone.entries) {
+        final idx = entry.value.indexWhere((t) => t.id == tableId);
+        if (idx != -1) {
+          targetZoneKey = entry.key;
+          index = idx;
+          break;
+        }
       }
+    }
+
+    if (targetZoneKey != null && index != -1) {
+      final list = _tablesByZone[targetZoneKey]!;
+      final table = list[index];
+      final updatedTickets = table.activeTickets.where((t) => t['ticket_id'] != ticketId).toList();
+
+      final newStatus = updatedTickets.isEmpty ? 'free' : 'occupied';
+      final newWaiter = updatedTickets.isEmpty ? null : table.assignedWaiter;
+
+      list[index] = RestaurantTableModel(
+        id: table.id,
+        zoneId: table.zoneId,
+        tableNumber: table.tableNumber,
+        seats: table.seats,
+        shape: table.shape,
+        posX: table.posX,
+        posY: table.posY,
+        status: newStatus,
+        assignedWaiter: newWaiter,
+        activeTickets: updatedTickets,
+      );
+
+      debugPrint('✅ Ticket $ticketId removido de Mesa ${table.tableNumber}. Nuevo estatus: $newStatus');
+      notifyListeners();
     }
   }
 
   void clearAllTableTickets(String zoneId, String tableId) {
-    final list = _tablesByZone[zoneId];
-    if (list != null) {
-      final index = list.indexWhere((t) => t.id == tableId);
-      if (index != -1) {
-        final table = list[index];
-        list[index] = RestaurantTableModel(
-          id: table.id,
-          zoneId: table.zoneId,
-          tableNumber: table.tableNumber,
-          seats: table.seats,
-          shape: table.shape,
-          posX: table.posX,
-          posY: table.posY,
-          status: 'free',
-          assignedWaiter: null,
-          activeTickets: const [],
-        );
-        debugPrint('🧹 Mesa ${table.tableNumber} totalmente liberada (estatus: free).');
-        notifyListeners();
+    String? targetZoneKey;
+    int index = -1;
+
+    if (_tablesByZone.containsKey(zoneId)) {
+      index = _tablesByZone[zoneId]!.indexWhere((t) => t.id == tableId);
+      if (index != -1) targetZoneKey = zoneId;
+    }
+
+    if (targetZoneKey == null) {
+      for (final entry in _tablesByZone.entries) {
+        final idx = entry.value.indexWhere((t) => t.id == tableId);
+        if (idx != -1) {
+          targetZoneKey = entry.key;
+          index = idx;
+          break;
+        }
       }
+    }
+
+    if (targetZoneKey != null && index != -1) {
+      final list = _tablesByZone[targetZoneKey]!;
+      final table = list[index];
+      list[index] = RestaurantTableModel(
+        id: table.id,
+        zoneId: table.zoneId,
+        tableNumber: table.tableNumber,
+        seats: table.seats,
+        shape: table.shape,
+        posX: table.posX,
+        posY: table.posY,
+        status: 'free',
+        assignedWaiter: null,
+        activeTickets: const [],
+      );
+      debugPrint('🧹 Mesa ${table.tableNumber} totalmente liberada (estatus: free).');
+      notifyListeners();
     }
   }
 }

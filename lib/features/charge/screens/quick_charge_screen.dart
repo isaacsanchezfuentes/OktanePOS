@@ -198,7 +198,7 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
     );
   }
 
-  void _navigateToTableOrderDetail() {
+  Future<void> _navigateToTableOrderDetail() async {
     final zones = _tableService.getZones();
     ZoneModel targetZone;
     RestaurantTableModel targetTable;
@@ -228,7 +228,11 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
       targetTable = found ?? _tableService.getTablesByZone(zones.first.id).first;
     }
 
-    Navigator.push(
+    if (_pendingOrderItems.isNotEmpty) {
+      _tableService.saveTableDraft(targetTable.id, _pendingOrderItems);
+    }
+
+    await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => TableOrderDetailScreen(
@@ -236,11 +240,27 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
           table: targetTable,
           tableService: _tableService,
           onTableUpdated: () {
-            setState(() {});
+            if (mounted) setState(() {});
           },
         ),
       ),
     );
+
+    if (mounted) {
+      final remainingDraft = _tableService.getTableDraft(targetTable.id);
+      if (remainingDraft.isEmpty) {
+        setState(() {
+          _pendingOrderItems.clear();
+          _rawInput = '0';
+          _conceptController.clear();
+        });
+      } else {
+        setState(() {
+          _pendingOrderItems.clear();
+          _pendingOrderItems.addAll(remainingDraft);
+        });
+      }
+    }
   }
 
   Future<void> _onWaiterChanged(String newName, String newId) async {

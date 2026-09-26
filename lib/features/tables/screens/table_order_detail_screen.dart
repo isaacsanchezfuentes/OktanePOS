@@ -66,7 +66,7 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
 
   List<Map<String, dynamic>> _parseItemsFromConcept(String concept) {
     final List<Map<String, dynamic>> items = [];
-    final regExp = RegExp(r'(?:(\d+)\s*x\s*)?([^\(\$]+?)\s*\(\$([\d\.]+)\)');
+    final regExp = RegExp(r'(?:(\d+)\s*x\s*)?([^($]+?)\s*\(\$([\d.]+)\)');
     final matches = regExp.allMatches(concept);
 
     for (final match in matches) {
@@ -330,8 +330,11 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
   }
 
   void _reloadTableData() {
-    final updatedList = _tableService.getTablesByZone(_currentZone.id);
-    final updatedTable = updatedList.firstWhere((t) => t.id == _currentTable.id, orElse: () => _currentTable);
+    _loadAllTables();
+    final updatedTable = _allTables.firstWhere(
+      (t) => t.id == _currentTable.id,
+      orElse: () => _currentTable,
+    );
 
     setState(() {
       _currentTable = updatedTable;
@@ -714,7 +717,7 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: DropdownButtonFormField<String>(
-                      value: _selectedWaiterName ?? activeUserName,
+                      initialValue: _selectedWaiterName ?? activeUserName,
                       isExpanded: true,
                       decoration: const InputDecoration(
                         border: OutlineInputBorder(),
