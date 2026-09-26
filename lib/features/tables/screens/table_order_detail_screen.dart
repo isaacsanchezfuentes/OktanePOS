@@ -203,7 +203,7 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
     final List<String> itemStrs = _dispatchedItems.map((e) {
       final q = (e['quantity'] as num?)?.toInt() ?? 1;
       final qPrefix = q > 1 ? '${q}x ' : '';
-      return '$qPrefix${e['name']} (\$' + (e['price'] as num).toDouble().toStringAsFixed(1) + ')';
+      return '$qPrefix${e['name']} (\$${(e['price'] as num).toDouble().toStringAsFixed(1)})';
     }).toList();
 
     final String tableLabel = 'Mesa #${_currentTable.tableNumber}';
@@ -226,7 +226,7 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
           _liveTotal = newTotal;
         });
 
-        _tableService.notifyListeners();
+        _tableService.notifyTableUpdate();
         widget.onTableUpdated?.call();
 
         ScaffoldMessenger.of(context).showSnackBar(
@@ -261,7 +261,7 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
           );
         });
 
-        _tableService.notifyListeners();
+        _tableService.notifyTableUpdate();
         widget.onTableUpdated?.call();
 
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1049,7 +1049,7 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
                 color: Colors.white,
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.08),
+                    color: Colors.black.withValues(alpha: 0.08),
                     blurRadius: 8,
                     offset: const Offset(0, -2),
                   ),

@@ -1,8 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:oktane_pos/features/cash_cut/services/shift_policy_service.dart';
+import '../setup_test_mocks.dart';
 
 void main() {
-  TestWidgetsFlutterBinding.ensureInitialized();
+  setupTestMocks();
 
   group('ShiftPolicyService Unit Tests', () {
     test('Evaluates canOpenNewShiftToday according to policy modes', () async {

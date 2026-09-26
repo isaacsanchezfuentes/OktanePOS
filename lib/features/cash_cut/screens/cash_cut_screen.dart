@@ -92,7 +92,6 @@ class _CashCutScreenState extends State<CashCutScreen> {
 
     setState(() => _isPrinting = true);
 
-    final userId = Supabase.instance.client.auth.currentUser?.id ?? '';
     final userEmail = Supabase.instance.client.auth.currentUser?.email ?? 'Cajero Default';
 
     // 1. Close shift in Supabase if an active shift exists
@@ -385,7 +384,7 @@ class _CashCutScreenState extends State<CashCutScreen> {
         color: Theme.of(context).colorScheme.primaryContainer,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: Theme.of(context).colorScheme.primary.withOpacity(0.3),
+          color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3),
         ),
       ),
       child: Column(
@@ -396,7 +395,7 @@ class _CashCutScreenState extends State<CashCutScreen> {
             style: TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.bold,
-              color: Theme.of(context).colorScheme.onPrimaryContainer.withOpacity(0.8),
+              color: Theme.of(context).colorScheme.onPrimaryContainer.withValues(alpha: 0.8),
               letterSpacing: 0.5,
             ),
           ),
@@ -420,9 +419,9 @@ class _CashCutScreenState extends State<CashCutScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 14),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.08),
+        color: color.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withOpacity(0.3)),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
       ),
       child: Column(
         children: [
@@ -509,9 +508,9 @@ class _CashCutScreenState extends State<CashCutScreen> {
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.12),
+        color: color.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: color.withOpacity(0.5)),
+        border: Border.all(color: color.withValues(alpha: 0.5)),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,

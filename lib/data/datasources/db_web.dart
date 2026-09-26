@@ -10,9 +10,6 @@ class _WebMockExecutor extends QueryExecutor {
   SqlDialect get dialect => SqlDialect.sqlite;
 
   @override
-  bool get canRun => true;
-
-  @override
   Future<bool> ensureOpen(QueryExecutorUser user) async => true;
 
   @override
@@ -33,17 +30,8 @@ class _WebMockExecutor extends QueryExecutor {
   @override
   TransactionExecutor beginTransaction() => throw UnimplementedError();
 
-  // Drift v2+ methods
   @override
   Future<void> runBatched(BatchedStatements statements) async {}
 
-  @override
-  Future<void> runExclusive(Future<void> Function(QueryExecutor) action) => action(this);
-
-  @override
-  Future<void> runBatchedExclusive(BatchedStatements statements) async {}
-
-  // Missing method for Drift QueryExecutor
-  @override
   TransactionExecutor beginExclusive() => throw UnimplementedError();
 }

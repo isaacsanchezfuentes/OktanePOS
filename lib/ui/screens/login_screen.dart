@@ -47,7 +47,7 @@ class _LoginScreenState extends State<LoginScreen> {
     } on AuthException {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
+          const SnackBar(
             content: Text('Error: Usuario o contraseña incorrectos'),
             backgroundColor: Colors.red,
           ),
@@ -67,28 +67,115 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFF0A1128), // Fondo Azul Oscuro Profundo
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24.0),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.local_shipping, size: 80, color: Colors.blue),
-              const SizedBox(height: 16),
-              const Text(
-                'PAQUETERÍA',
-                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.blue),
+              // Cabecera de marca Oktane POS (Fuego Azul Eléctrico)
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Contenedor circular con resplandor azul eléctrico
+                  Container(
+                    width: 88,
+                    height: 88,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: const Color(0xFF0A1128),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFF00E5FF).withValues(alpha: 0.35),
+                          blurRadius: 28,
+                          spreadRadius: 6,
+                        ),
+                      ],
+                      border: Border.all(
+                        color: const Color(0xFF00B0FF).withValues(alpha: 0.5),
+                        width: 1.5,
+                      ),
+                    ),
+                    child: Center(
+                      child: ShaderMask(
+                        shaderCallback: (bounds) => const LinearGradient(
+                          begin: Alignment.bottomCenter,
+                          end: Alignment.topCenter,
+                          colors: [
+                            Color(0xFF0D47A1), // Azul cobalto profundo base
+                            Color(0xFF00B0FF), // Azul eléctrico medio
+                            Color(0xFF00E5FF), // Cian chispa cúspide
+                          ],
+                        ).createShader(bounds),
+                        child: const Icon(
+                          Icons.local_fire_department_rounded,
+                          size: 54,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  // Nombre de marca con RichText
+                  RichText(
+                    text: const TextSpan(
+                      style: TextStyle(
+                        fontSize: 32,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 1.2,
+                      ),
+                      children: [
+                        TextSpan(
+                          text: 'Oktane',
+                          style: TextStyle(color: Colors.white),
+                        ),
+                        TextSpan(
+                          text: ' POS',
+                          style: TextStyle(color: Color(0xFF00E5FF)),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  // Subtítulo Chip
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF00E5FF).withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Text(
+                      'SISTEMA DE COMANDAS & COBRO',
+                      style: TextStyle(
+                        color: Color(0xFF80D8FF),
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 1.5,
+                      ),
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 32),
+              const SizedBox(height: 36),
               TextField(
                 controller: _emailController,
+                style: const TextStyle(color: Colors.white),
                 decoration: InputDecoration(
                   labelText: 'Usuario / Email',
-                  prefixIcon: const Icon(Icons.person),
+                  labelStyle: const TextStyle(color: Colors.grey),
+                  prefixIcon: const Icon(Icons.person, color: Color(0xFF00E5FF)),
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: const Color(0xFF00B0FF).withValues(alpha: 0.3)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: Color(0xFF00E5FF)),
+                  ),
                   filled: true,
-                  fillColor: Colors.grey[50],
+                  fillColor: const Color(0xFF131E3A),
                 ),
                 keyboardType: TextInputType.emailAddress,
               ),
@@ -96,16 +183,26 @@ class _LoginScreenState extends State<LoginScreen> {
               TextField(
                 controller: _passwordController,
                 obscureText: _obscurePassword,
+                style: const TextStyle(color: Colors.white),
                 decoration: InputDecoration(
                   labelText: 'Contraseña',
-                  prefixIcon: const Icon(Icons.lock),
+                  labelStyle: const TextStyle(color: Colors.grey),
+                  prefixIcon: const Icon(Icons.lock, color: Color(0xFF00E5FF)),
                   suffixIcon: IconButton(
-                    icon: Icon(_obscurePassword ? Icons.visibility_off : Icons.visibility),
+                    icon: Icon(_obscurePassword ? Icons.visibility_off : Icons.visibility, color: Colors.grey),
                     onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
                   ),
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: const Color(0xFF00B0FF).withValues(alpha: 0.3)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: Color(0xFF00E5FF)),
+                  ),
                   filled: true,
-                  fillColor: Colors.grey[50],
+                  fillColor: const Color(0xFF131E3A),
                 ),
               ),
               const SizedBox(height: 32),
@@ -115,7 +212,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 child: ElevatedButton(
                   onPressed: _isLoading ? null : _handleLogin,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blue,
+                    backgroundColor: const Color(0xFF00B0FF),
                     foregroundColor: Colors.white,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),

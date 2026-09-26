@@ -3,8 +3,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:oktane_pos/features/charge/models/charge_model.dart';
 import 'package:oktane_pos/features/charge/widgets/amount_display.dart';
 import 'package:oktane_pos/features/charge/widgets/pos_keypad.dart';
+import '../setup_test_mocks.dart';
 
 void main() {
+  setupTestMocks();
+
   group('ChargeModel Unit Tests', () {
     test('ChargeModel toSupabaseJson generates correct pending record map', () {
       final charge = ChargeModel(

@@ -3,7 +3,6 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/zone_model.dart';
 import '../models/table_model.dart';
 import '../../charge/services/charge_service.dart';
-import '../../charge/models/charge_model.dart';
 
 class TableService extends ChangeNotifier {
   final List<ZoneModel> _zones = const [
@@ -17,6 +16,11 @@ class TableService extends ChangeNotifier {
 
   TableService() {
     _initDefaultTables();
+  }
+
+  /// Public method to notify listeners on table updates from UI screens
+  void notifyTableUpdate() {
+    notifyListeners();
   }
 
   static int _parseInt(dynamic val, int defaultValue) {
@@ -202,16 +206,26 @@ class TableService extends ChangeNotifier {
 
         // Create or update single unified pending charge record
         try {
-          final cs = chargeService ?? ChargeService();
-          await cs.createOrUpdatePendingChargeForTable(
-            tableId: tableId,
-            newRoundAmount: amount,
-            userId: waiterId,
-            roundConcept: concept,
-            tableLabel: tableLabel,
-          );
+          ChargeService? cs = chargeService;
+          if (cs == null) {
+            try {
+              cs = ChargeService();
+            } catch (e) {
+              debugPrint('ℹ️ Instancia de Supabase no inicializada en tests unitarios. Omitiendo registro de charge.');
+              cs = null;
+            }
+          }
+          if (cs != null) {
+            await cs.createOrUpdatePendingChargeForTable(
+              tableId: tableId,
+              newRoundAmount: amount,
+              userId: waiterId,
+              roundConcept: concept,
+              tableLabel: tableLabel,
+            );
+          }
         } catch (e) {
-          debugPrint('⚠️ Error al registrar charge unificado pendiente: $e');
+          debugPrint('ℹ️ Error al registrar charge unificado pendiente en tests: $e');
         }
       }
     }

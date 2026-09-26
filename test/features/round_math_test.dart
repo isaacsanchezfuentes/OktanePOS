@@ -1,5 +1,4 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:oktane_pos/features/charge/models/charge_model.dart';
 import 'package:oktane_pos/features/tables/services/table_service.dart';
 
 void main() {

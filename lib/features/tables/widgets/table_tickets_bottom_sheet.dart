@@ -119,65 +119,7 @@ class _TableTicketsBottomSheetState extends State<TableTicketsBottomSheet> {
     return 'Mesa #${_currentTable.tableNumber} - Consumo Consolidado [${waiterDetails.join(', ')}]';
   }
 
-  void _showAddTicketDialog() {
-    final currentUser = Supabase.instance.client.auth.currentUser;
-    final currentUserId = currentUser?.id ?? 'waiter-default';
-    final currentWaiterName = currentUser?.userMetadata?['display_name'] ?? 
-        currentUser?.email?.split('@').first ?? 'Mesero';
 
-    final amountCtrl = TextEditingController(text: '150.00');
-    final conceptCtrl = TextEditingController(text: 'Mesa #${_currentTable.tableNumber} - Ronda');
-
-    showDialog(
-      context: context,
-      builder: (dialogCtx) => AlertDialog(
-        title: Text('+ Añadir Ticket a Mesa #${_currentTable.tableNumber}'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: conceptCtrl,
-              decoration: const InputDecoration(labelText: 'Concepto / Consumo', border: OutlineInputBorder()),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: amountCtrl,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(labelText: 'Monto Estimado', prefixText: '\$ ', border: OutlineInputBorder()),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogCtx), child: const Text('Cancelar')),
-          ElevatedButton(
-            onPressed: () {
-              final amt = double.tryParse(amountCtrl.text.trim()) ?? 0.0;
-              widget.tableService.addTicketToTable(
-                widget.zone.id,
-                _currentTable.id,
-                amount: amt,
-                concept: conceptCtrl.text.trim(),
-                waiterId: currentUserId,
-                waiterName: currentWaiterName,
-              );
-
-              // Update local state
-              final updatedList = widget.tableService.getTablesByZone(widget.zone.id);
-              final updatedTable = updatedList.firstWhere((t) => t.id == _currentTable.id, orElse: () => _currentTable);
-
-              setState(() {
-                _currentTable = updatedTable;
-              });
-
-              widget.onTableUpdated?.call();
-              Navigator.pop(dialogCtx);
-            },
-            child: const Text('Añadir Ticket'),
-          ),
-        ],
-      ),
-    );
-  }
 
   void _proceedToConsolidatedCharge() {
     Navigator.pop(context);

@@ -1,5 +1,4 @@
 import 'package:drift/drift.dart';
-import '../models/paquete_model.dart';
 // IMPORTACIÓN CONDICIONAL
 import 'db_stub.dart'
     if (dart.library.io) 'db_mobile.dart'

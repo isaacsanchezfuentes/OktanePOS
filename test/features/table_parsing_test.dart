@@ -6,7 +6,7 @@ void main() {
 
   group('RestaurantTableModel Robust Type Parsing Tests', () {
     test('Correctly parses String table_number, seats, and double position fields from Supabase JSON', () {
-      final StringJson = {
+      final stringJson = {
         'id': '00000000-0000-4000-8000-000000000001',
         'zone_id': '11111111-1111-4000-8000-000000000001',
         'table_number': '1', // String from Supabase text column
@@ -16,7 +16,7 @@ void main() {
         'status': 'occupied',
       };
 
-      final table = RestaurantTableModel.fromJson(StringJson);
+      final table = RestaurantTableModel.fromJson(stringJson);
 
       expect(table.tableNumber, 1);
       expect(table.seats, 4);
@@ -26,7 +26,7 @@ void main() {
     });
 
     test('Correctly parses numeric table_number, seats, and double position fields', () {
-      final NumericJson = {
+      final numericJson = {
         'id': '00000000-0000-4000-8000-000000000002',
         'zone_id': '11111111-1111-4000-8000-000000000001',
         'table_number': 2,
@@ -36,7 +36,7 @@ void main() {
         'status': 'free',
       };
 
-      final table = RestaurantTableModel.fromJson(NumericJson);
+      final table = RestaurantTableModel.fromJson(numericJson);
 
       expect(table.tableNumber, 2);
       expect(table.seats, 6);

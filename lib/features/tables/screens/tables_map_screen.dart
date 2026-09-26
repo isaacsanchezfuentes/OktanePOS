@@ -1,14 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:oktane_pos/providers/auth_provider.dart';
 import '../../auth/services/rbac_service.dart';
 import '../models/zone_model.dart';
 import '../models/table_model.dart';
 import '../services/table_service.dart';
 import '../widgets/table_tickets_bottom_sheet.dart';
-import '../../charge/screens/quick_charge_screen.dart';
 
 class TablesMapScreen extends StatefulWidget {
   final TableService? tableService;
@@ -144,39 +142,6 @@ class _TablesMapScreenState extends State<TablesMapScreen> with SingleTickerProv
         _syncTablesData();
       },
     ).then((_) => _syncTablesData());
-  }
-
-  Widget _buildStatusBadge(String status) {
-    Color bg;
-    Color text;
-    String label;
-
-    switch (status.toLowerCase()) {
-      case 'occupied':
-        bg = Colors.orange[100]!;
-        text = Colors.orange[900]!;
-        label = 'Ocupada';
-        break;
-      case 'bill_requested':
-      case 'billed':
-        bg = Colors.blue[100]!;
-        text = Colors.blue[900]!;
-        label = 'Cuenta Pedida';
-        break;
-      case 'free':
-      case 'available':
-      default:
-        bg = Colors.green[100]!;
-        text = Colors.green[900]!;
-        label = 'Disponible';
-        break;
-    }
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(12)),
-      child: Text(label, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: text)),
-    );
   }
 
   Widget _buildLegendItem(String label, Color color) {

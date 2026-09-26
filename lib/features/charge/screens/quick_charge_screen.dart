@@ -14,7 +14,6 @@ import '../../printer/screens/printer_settings_screen.dart';
 import '../../cash_cut/screens/cash_cut_screen.dart';
 import '../../cash_cut/screens/cash_calendar_screen.dart';
 import '../../cash_cut/services/shift_service.dart';
-import '../../cash_cut/services/shift_policy_service.dart';
 import '../../tables/screens/tables_map_screen.dart';
 import '../../tables/services/table_service.dart';
 import 'package:oktane_pos/features/tables/models/zone_model.dart';
@@ -50,7 +49,6 @@ class QuickChargeScreen extends StatefulWidget {
 class _QuickChargeScreenState extends State<QuickChargeScreen> {
   final ChargeService _chargeService = ChargeService();
   final ShiftService _shiftService = ShiftService();
-  final ShiftPolicyService _policyService = ShiftPolicyService();
   final RbacService _rbacService = RbacService();
   final MenuService _menuService = MenuService();
   late final TableService _tableService;
@@ -61,7 +59,6 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
   final List<Map<String, dynamic>> _pendingOrderItems = [];
 
   String _rawInput = '0';
-  bool _isTakeaway = false;
   String _selectedTableLabel = 'Barra / Mostrador';
   String? _selectedWaiterName;
   String? _selectedWaiterId;
@@ -85,7 +82,6 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
     setState(() {
       if (key == 'CLEAR') {
         _rawInput = '0';
-        _isTakeaway = false;
         _pendingOrderItems.clear();
         _conceptController.clear();
       } else if (key == 'BACKSPACE') {
@@ -331,7 +327,6 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
       _conceptController.clear();
       _notesController.clear();
       _pendingOrderItems.clear();
-      _isTakeaway = false;
     });
   }
 
@@ -465,13 +460,12 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
   Future<void> _openPaymentModal() async {
     if (_amount <= 0) return;
 
-    final currentCtx = context;
     final userId = _selectedWaiterId ?? (Supabase.instance.client.auth.currentUser?.id ?? '');
     final activeShift = await _shiftService.getActiveShift(userId);
     if (!mounted) return;
 
     if (activeShift == null) {
-      final bool opened = await _showMandatoryOpenShiftDialog(currentCtx, userId);
+      final bool opened = await _showMandatoryOpenShiftDialog(context, userId);
       if (!opened || !mounted) return;
     }
 
@@ -490,7 +484,7 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
     if (!mounted) return;
 
     final resultCharge = await PaymentMethodBottomSheet.show(
-      currentCtx,
+      context,
       amount: _amount,
       concept: conceptText,
       chargeService: _chargeService,
@@ -756,7 +750,7 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
                         children: [
                           Expanded(
                             child: DropdownButtonFormField<String>(
-                              value: _selectedTableLabel,
+                              initialValue: _selectedTableLabel,
                               isExpanded: true,
                               decoration: const InputDecoration(
                                 labelText: 'Mesa / Ubicación',
