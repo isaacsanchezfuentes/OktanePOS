@@ -14,7 +14,9 @@ import '../../printer/screens/printer_settings_screen.dart';
 import '../../cash_cut/screens/cash_cut_screen.dart';
 import '../../cash_cut/screens/cash_calendar_screen.dart';
 import '../../cash_cut/services/shift_service.dart';
+import '../../tables/theme/table_theme.dart';
 import 'package:oktane_pos/core/localization/app_locale.dart';
+import 'package:oktane_pos/core/theme/theme_service.dart';
 import '../../tables/screens/tables_map_screen.dart';
 import '../../tables/services/table_service.dart';
 import 'package:oktane_pos/features/tables/models/zone_model.dart';
@@ -674,105 +676,162 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
           ),
         ),
         actions: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4),
-            child: ListenableBuilder(
-              listenable: AppLocale.instance,
-              builder: (context, _) {
-                final isEs = AppLocale.instance.currentLang == 'es';
-                return InkWell(
-                  onTap: () => AppLocale.instance.toggle(),
-                  borderRadius: BorderRadius.circular(6),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: Colors.indigo[50],
-                      borderRadius: BorderRadius.circular(6),
-                      border: Border.all(color: Colors.indigo[200]!, width: 0.8),
-                    ),
-                    child: Text(
-                      isEs ? '🇲🇽 ES' : '🇺🇸 EN',
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.indigo),
-                    ),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 2),
+                  child: ListenableBuilder(
+                    listenable: AppLocale.instance,
+                    builder: (context, _) {
+                      final isEs = AppLocale.instance.currentLang == 'es';
+                      return InkWell(
+                        onTap: () => AppLocale.instance.toggle(),
+                        borderRadius: BorderRadius.circular(6),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: Colors.indigo[50],
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: Colors.indigo[200]!, width: 0.8),
+                          ),
+                          child: Text(
+                            isEs ? '🇲🇽 ES' : '🇺🇸 EN',
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Colors.indigo),
+                          ),
+                        ),
+                      );
+                    },
                   ),
-                );
-              },
+                ),
+                IconButton(
+                  icon: const Icon(Icons.table_restaurant),
+                  tooltip: 'Plano de Mesas',
+                  constraints: const BoxConstraints(),
+                  padding: const EdgeInsets.symmetric(horizontal: 2),
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () {
+                    Navigator.push(context, MaterialPageRoute(builder: (context) => const TablesMapScreen()));
+                  },
+                ),
+                IconButton(
+                  icon: const Icon(Icons.print_outlined),
+                  tooltip: 'Impresora',
+                  constraints: const BoxConstraints(),
+                  padding: const EdgeInsets.symmetric(horizontal: 2),
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () {
+                    Navigator.push(context, MaterialPageRoute(builder: (context) => const PrinterSettingsScreen()));
+                  },
+                ),
+                IconButton(
+                  icon: const Icon(Icons.receipt_long),
+                  tooltip: 'Historial',
+                  constraints: const BoxConstraints(),
+                  padding: const EdgeInsets.symmetric(horizontal: 2),
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () {
+                    Navigator.push(context, MaterialPageRoute(builder: (context) => const ChargesHistoryScreen()));
+                  },
+                ),
+                IconButton(
+                  icon: const Icon(Icons.calendar_month),
+                  tooltip: 'Calendario',
+                  constraints: const BoxConstraints(),
+                  padding: const EdgeInsets.symmetric(horizontal: 2),
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () {
+                    _checkManagerAccessAndNavigate(const CashCalendarScreen());
+                  },
+                ),
+                IconButton(
+                  icon: const Icon(Icons.account_balance_wallet_outlined),
+                  tooltip: 'Corte de Caja',
+                  constraints: const BoxConstraints(),
+                  padding: const EdgeInsets.symmetric(horizontal: 2),
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () {
+                    _checkManagerAccessAndNavigate(const CashCutScreen());
+                  },
+                ),
+                IconButton(
+                  icon: const Icon(Icons.settings_outlined),
+                  tooltip: 'Ajustes',
+                  constraints: const BoxConstraints(),
+                  padding: const EdgeInsets.symmetric(horizontal: 2),
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () {
+                    Navigator.push(context, MaterialPageRoute(builder: (context) => const SettingsScreen()));
+                  },
+                ),
+                PopupMenuButton<AppThemeMode>(
+                  icon: const Icon(Icons.palette_outlined),
+                  tooltip: 'Tema Visual',
+                  constraints: const BoxConstraints(),
+                  padding: const EdgeInsets.symmetric(horizontal: 2),
+                  onSelected: (mode) {
+                    ThemeService.instance.setTheme(mode);
+                  },
+                  itemBuilder: (context) => [
+                    const PopupMenuItem(
+                      value: AppThemeMode.slateIndustrial,
+                      child: Row(
+                        children: [
+                          Icon(Icons.circle, color: Color(0xFF0D1116), size: 16),
+                          SizedBox(width: 8),
+                          Text('Slate Industrial'),
+                        ],
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      value: AppThemeMode.casioBlue,
+                      child: Row(
+                        children: [
+                          Icon(Icons.circle, color: Color(0xFF0E2C6B), size: 16),
+                          SizedBox(width: 8),
+                          Text('Casio Blue'),
+                        ],
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      value: AppThemeMode.casioPink,
+                      child: Row(
+                        children: [
+                          Icon(Icons.circle, color: Color(0xFF9E1B5A), size: 16),
+                          SizedBox(width: 8),
+                          Text('Casio Pink'),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                IconButton(
+                  icon: const Icon(Icons.logout),
+                  tooltip: 'Cerrar Sesión',
+                  constraints: const BoxConstraints(),
+                  padding: const EdgeInsets.fromLTRB(2, 0, 6, 0),
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () async {
+                    final navigator = Navigator.of(context);
+                    await auth.logout();
+                    navigator.pushAndRemoveUntil(
+                      MaterialPageRoute(builder: (context) => const LoginScreen()),
+                      (route) => false,
+                    );
+                  },
+                ),
+              ],
             ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.table_restaurant),
-            tooltip: 'Plano de Mesas',
-            constraints: const BoxConstraints(),
-            padding: const EdgeInsets.symmetric(horizontal: 4),
-            onPressed: () {
-              Navigator.push(context, MaterialPageRoute(builder: (context) => const TablesMapScreen()));
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.print_outlined),
-            tooltip: 'Impresora',
-            constraints: const BoxConstraints(),
-            padding: const EdgeInsets.symmetric(horizontal: 4),
-            onPressed: () {
-              Navigator.push(context, MaterialPageRoute(builder: (context) => const PrinterSettingsScreen()));
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.receipt_long),
-            tooltip: 'Historial',
-            constraints: const BoxConstraints(),
-            padding: const EdgeInsets.symmetric(horizontal: 4),
-            onPressed: () {
-              Navigator.push(context, MaterialPageRoute(builder: (context) => const ChargesHistoryScreen()));
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.calendar_month),
-            tooltip: 'Calendario',
-            constraints: const BoxConstraints(),
-            padding: const EdgeInsets.symmetric(horizontal: 4),
-            onPressed: () {
-              _checkManagerAccessAndNavigate(const CashCalendarScreen());
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.account_balance_wallet_outlined),
-            tooltip: 'Corte de Caja',
-            constraints: const BoxConstraints(),
-            padding: const EdgeInsets.symmetric(horizontal: 4),
-            onPressed: () {
-              _checkManagerAccessAndNavigate(const CashCutScreen());
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.settings_outlined),
-            tooltip: 'Ajustes',
-            constraints: const BoxConstraints(),
-            padding: const EdgeInsets.symmetric(horizontal: 4),
-            onPressed: () {
-              Navigator.push(context, MaterialPageRoute(builder: (context) => const SettingsScreen()));
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.logout),
-            tooltip: 'Cerrar Sesión',
-            constraints: const BoxConstraints(),
-            padding: const EdgeInsets.fromLTRB(4, 0, 8, 0),
-            onPressed: () async {
-              final navigator = Navigator.of(context);
-              await auth.logout();
-              navigator.pushAndRemoveUntil(
-                MaterialPageRoute(builder: (context) => const LoginScreen()),
-                (route) => false,
-              );
-            },
           ),
         ],
       ),
       resizeToAvoidBottomInset: false,
       body: ListenableBuilder(
-        listenable: AppLocale.instance,
+        listenable: Listenable.merge([AppLocale.instance, ThemeService.instance]),
         builder: (context, _) {
+          final theme = ThemeService.instance;
           return SafeArea(
             child: Column(
               children: [
@@ -782,12 +841,86 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
                   rawInput: _rawInput,
                 ),
 
+                // Sub-strip: "MANDAR COCINA" on left, "Oktane POS" text branding on right
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: SizedBox(
+                          height: 42,
+                          child: OutlinedButton.icon(
+                            onPressed: _amount > 0
+                                ? () {
+                                    if (_pendingOrderItems.isEmpty) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(
+                                          content: Text('Para mandar a cocina selecciona al menos un platillo o bebida del menú.'),
+                                          backgroundColor: Colors.orange,
+                                          duration: Duration(seconds: 3),
+                                        ),
+                                      );
+                                      return;
+                                    }
+                                    _sendOrderToKitchen();
+                                  }
+                                : null,
+                            icon: const Icon(Icons.soup_kitchen, size: 20),
+                            label: FittedBox(
+                              child: Text(
+                                '👨‍🍳 ${tr('send_kitchen')}',
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                              ),
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              side: BorderSide(color: _amount > 0 ? theme.accentAction : Colors.grey[600]!),
+                              foregroundColor: theme.displayText,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      // Stylized "Oktane POS" text branding
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: theme.cardSurface,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: theme.accentAction.withValues(alpha: 0.4), width: 1),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.bolt, color: Color(0xFF00E5FF), size: 16),
+                            const SizedBox(width: 4),
+                            ShaderMask(
+                              shaderCallback: (bounds) => const LinearGradient(
+                                colors: [Color(0xFF00B0FF), Color(0xFF00E5FF)],
+                              ).createShader(bounds),
+                              child: const Text(
+                                'Oktane POS',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w900,
+                                  color: Colors.white,
+                                  letterSpacing: 0.8,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
                 // Responsive Controls Section
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 2.0),
                   child: Card(
                     elevation: 0,
-                    color: Colors.grey[100],
+                    color: theme.cardSurface,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     child: Padding(
                       padding: const EdgeInsets.all(12.0),
@@ -801,12 +934,18 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
                                 child: DropdownButtonFormField<String>(
                                   initialValue: _selectedTableLabel,
                                   isExpanded: true,
+                                  dropdownColor: theme.cardSurface,
+                                  iconEnabledColor: TableTheme.textSecondary,
+                                  style: const TextStyle(color: TableTheme.textPrimary, fontSize: 12, fontWeight: FontWeight.bold),
                                   decoration: InputDecoration(
                                     labelText: tr('table_location'),
+                                    labelStyle: const TextStyle(color: TableTheme.textSecondary, fontSize: 12),
                                     border: const OutlineInputBorder(),
+                                    enabledBorder: const OutlineInputBorder(borderSide: BorderSide(color: TableTheme.borderStrong)),
+                                    focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: theme.accentAction, width: 1.5)),
                                     contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                                   ),
-                                  items: availableTables.map((t) => DropdownMenuItem(value: t, child: Text(t, style: const TextStyle(fontSize: 12)))).toList(),
+                                  items: availableTables.map((t) => DropdownMenuItem(value: t, child: Text(t, style: const TextStyle(color: TableTheme.textPrimary, fontSize: 12)))).toList(),
                                   onChanged: (val) {
                                     if (val != null) setState(() => _selectedTableLabel = val);
                                   },
@@ -815,17 +954,23 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
                               const SizedBox(width: 8),
                               Expanded(
                                 child: DropdownButtonFormField<String>(
-                                  value: _selectedWaiterName ?? activeUserName,
+                                  initialValue: _selectedWaiterName ?? activeUserName,
                                   isExpanded: true,
+                                  dropdownColor: theme.cardSurface,
+                                  iconEnabledColor: TableTheme.textSecondary,
+                                  style: const TextStyle(color: TableTheme.textPrimary, fontSize: 12, fontWeight: FontWeight.bold),
                                   decoration: InputDecoration(
                                     labelText: tr('waiter_service'),
+                                    labelStyle: const TextStyle(color: TableTheme.textSecondary, fontSize: 12),
                                     border: const OutlineInputBorder(),
+                                    enabledBorder: const OutlineInputBorder(borderSide: BorderSide(color: TableTheme.borderStrong)),
+                                    focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: theme.accentAction, width: 1.5)),
                                     contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                                   ),
                                   items: waitersList.map((w) {
                                     return DropdownMenuItem<String>(
                                       value: w['name'],
-                                      child: Text(w['name']!, style: const TextStyle(fontSize: 12), overflow: TextOverflow.ellipsis),
+                                      child: Text(w['name']!, style: const TextStyle(color: TableTheme.textPrimary, fontSize: 12), overflow: TextOverflow.ellipsis),
                                     );
                                   }).toList(),
                                   onChanged: (val) {
@@ -874,9 +1019,13 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
                               return TextField(
                                 controller: controller,
                                 focusNode: focusNode,
+                                style: const TextStyle(color: TableTheme.textPrimary, fontSize: 13),
                                 decoration: InputDecoration(
                                   hintText: '🔍 ${tr('search_menu')}',
+                                  hintStyle: const TextStyle(color: TableTheme.textMuted, fontSize: 12),
                                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                                  enabledBorder: const OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(8)), borderSide: BorderSide(color: TableTheme.borderStrong)),
+                                  focusedBorder: OutlineInputBorder(borderRadius: const BorderRadius.all(Radius.circular(8)), borderSide: BorderSide(color: theme.accentAction, width: 1.5)),
                                   contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                                 ),
                               );
@@ -958,69 +1107,29 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
                   ),
                 ),
 
-                // Operational Action Buttons: Mandar a Cocina & Cobrar
+                // Operational Action Button: Cobrar (Full-Width)
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: SizedBox(
-                          height: 54,
-                          child: OutlinedButton.icon(
-                            onPressed: _amount > 0
-                                ? () {
-                                    if (_pendingOrderItems.isEmpty) {
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        const SnackBar(
-                                          content: Text('Para mandar a cocina selecciona al menos un platillo o bebida del menú.'),
-                                          backgroundColor: Colors.orange,
-                                          duration: Duration(seconds: 3),
-                                        ),
-                                      );
-                                      return;
-                                    }
-                                    _sendOrderToKitchen();
-                                  }
-                                : null,
-                            icon: const Icon(Icons.soup_kitchen, size: 22),
-                            label: FittedBox(
-                              child: Text(
-                                '👨‍🍳 ${tr('send_kitchen')}',
-                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                              ),
-                            ),
-                            style: OutlinedButton.styleFrom(
-                              side: BorderSide(color: _amount > 0 ? Colors.indigo : Colors.grey[300]!),
-                              foregroundColor: Colors.indigo[900],
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                            ),
-                          ),
+                  padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 10.0),
+                  child: SizedBox(
+                    width: double.infinity,
+                    height: 54,
+                    child: ElevatedButton.icon(
+                      onPressed: _amount > 0 ? _openPaymentModal : null,
+                      icon: const Icon(Icons.shopping_cart_checkout, size: 22),
+                      label: FittedBox(
+                        child: Text(
+                          '${tr('charge')} ${_formatAmount(_amount)}',
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, letterSpacing: 0.5),
                         ),
                       ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: SizedBox(
-                          height: 54,
-                          child: ElevatedButton.icon(
-                            onPressed: _amount > 0 ? _openPaymentModal : null,
-                            icon: const Icon(Icons.shopping_cart_checkout, size: 22),
-                            label: FittedBox(
-                              child: Text(
-                                '${tr('charge')} ${_formatAmount(_amount)}',
-                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                              ),
-                            ),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.green[600],
-                              disabledBackgroundColor: Colors.grey[300],
-                              foregroundColor: Colors.white,
-                              elevation: _amount > 0 ? 3 : 0,
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                            ),
-                          ),
-                        ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: theme.accentAction,
+                        disabledBackgroundColor: Colors.grey[700],
+                        foregroundColor: Colors.white,
+                        elevation: _amount > 0 ? 4 : 0,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                       ),
-                    ],
+                    ),
                   ),
                 ),
               ],

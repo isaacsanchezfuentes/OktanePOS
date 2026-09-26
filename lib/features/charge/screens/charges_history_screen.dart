@@ -201,66 +201,65 @@ class _ChargesHistoryScreenState extends State<ChargesHistoryScreen> {
         title: const Text('Historial de Cobros', style: TextStyle(fontWeight: FontWeight.bold)),
         elevation: 1,
       ),
-      body: StreamBuilder<List<ChargeModel>>(
-        stream: _chargeService.getTodayChargesStream(userId),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
-            return const Center(child: CircularProgressIndicator());
-          }
-
-          if (snapshot.hasError) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Icon(Icons.error_outline, size: 60, color: Colors.red),
-                  const SizedBox(height: 12),
-                  Text('Error cargando historial: ${snapshot.error}'),
-                ],
-              ),
-            );
-          }
-
-          final charges = snapshot.data ?? [];
-          _checkRealtimePaymentUpdates(charges);
-
-          final totalPaid = charges
-              .where((c) => c.status == 'paid')
-              .fold(0.0, (sum, c) => sum + c.amount);
-
-          final pendingCount = charges.where((c) => c.status == 'pending').length;
-
-          final filteredCharges = charges.where((c) {
-            if (_selectedStatusFilter == 'pending') return c.status == 'pending';
-            if (_selectedStatusFilter == 'paid') return c.status == 'paid';
-            return true;
-          }).toList();
-
-          return Column(
-            children: [
-              // Summary Header
-              _buildSummaryHeader(totalPaid, pendingCount),
-
-              // Status Filter Bar
-              _buildFilterBar(),
-
-              // List of Charges
-              Expanded(
-                child: filteredCharges.isEmpty
-                    ? _buildEmptyState()
-                    : ListView.builder(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                        itemCount: filteredCharges.length,
-                        itemBuilder: (context, index) {
-                          final charge = filteredCharges[index];
-                          final folio = filteredCharges.length - index;
-                          return _buildChargeCard(charge, folio);
-                        },
-                      ),
-              ),
-            ],
-          );
+      body: RefreshIndicator(
+        onRefresh: () async {
+          setState(() {});
         },
+        child: StreamBuilder<List<ChargeModel>>(
+          stream: _chargeService.getTodayChargesStream(userId),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
+              return const Center(child: CircularProgressIndicator());
+            }
+
+            final charges = snapshot.data ?? [];
+            _checkRealtimePaymentUpdates(charges);
+
+            final totalPaid = charges
+                .where((c) => c.status == 'paid')
+                .fold(0.0, (sum, c) => sum + c.amount);
+
+            final pendingCount = charges.where((c) => c.status == 'pending').length;
+
+            final filteredCharges = charges.where((c) {
+              if (_selectedStatusFilter == 'pending') return c.status == 'pending';
+              if (_selectedStatusFilter == 'paid') return c.status == 'paid';
+              return true;
+            }).toList();
+
+            return Column(
+              children: [
+                // Summary Header
+                _buildSummaryHeader(totalPaid, pendingCount),
+
+                // Status Filter Bar
+                _buildFilterBar(),
+
+                // List of Charges
+                Expanded(
+                  child: filteredCharges.isEmpty
+                      ? ListView(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          children: [
+                            SizedBox(height: MediaQuery.of(context).size.height * 0.15),
+                            _buildEmptyState(),
+                          ],
+                        )
+                      : ListView.builder(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                          itemCount: filteredCharges.length,
+                          itemBuilder: (context, index) {
+                            final charge = filteredCharges[index];
+                            final folio = filteredCharges.length - index;
+                            return _buildChargeCard(charge, folio);
+                          },
+                        ),
+                ),
+              ],
+            );
+          },
+        ),
       ),
     );
   }
