@@ -50,63 +50,50 @@ class PosKeypad extends StatelessWidget {
   }
 
   Widget _buildKeyButton(BuildContext context, String key) {
-    Widget content;
-    Color backgroundColor = const Color(0xFFFFFFFF); // BLANCO PURO OBLIGATORIO en todos los temas
-    Color foregroundColor = const Color(0xFF111827); // NEGRO GRAFITO PROFUNDO OBLIGATORIO
-    Border border = Border.all(color: const Color(0xFFCBD5E1), width: 1.5);
+    final isClear = key == 'CLEAR';
+    final isBack = key == 'BACKSPACE';
 
-    switch (key) {
-      case 'BACKSPACE':
-        content = const Icon(Icons.backspace_outlined, size: 22, color: Colors.white);
-        backgroundColor = ThemeService.keyDEL; // Naranja Vivo Casio (0xFFEA580C)
-        foregroundColor = Colors.white;
-        border = Border.all(color: Colors.transparent);
-        break;
-      case 'CLEAR':
-        content = const Text(
-          'C',
-          style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
-        );
-        backgroundColor = ThemeService.keyC; // Rojo Intenso Casio (0xFFDC2626)
-        foregroundColor = Colors.white;
-        border = Border.all(color: Colors.transparent);
-        break;
-      case 'AC':
-        content = const Text(
-          'AC',
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
-        );
-        backgroundColor = ThemeService.keyAC; // Verde Esmeralda Casio (0xFF16A34A)
-        foregroundColor = Colors.white;
-        border = Border.all(color: Colors.transparent);
-        break;
-      default:
-        content = Text(
-          key,
-          style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF111827)),
-        );
-    }
+    final border = isClear
+        ? Border.all(color: const Color(0xFFDC2626), width: 1.4)
+        : isBack
+            ? Border.all(color: const Color(0xFFD97706), width: 1.3)
+            : Border.all(color: const Color(0xFF64748B), width: 1.1);
+
+    final fontColor = isClear
+        ? const Color(0xFFDC2626)
+        : isBack
+            ? const Color(0xFFD97706)
+            : const Color(0xFF0F172A);
 
     return Material(
-      color: backgroundColor,
-      elevation: 2,
-      borderRadius: BorderRadius.circular(12),
+      color: Colors.transparent,
       child: InkWell(
         onTap: () => onKeyTap(key),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(8),
+        splashColor: const Color(0x22000000),
         child: Container(
           alignment: Alignment.center,
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
+            color: Colors.transparent, // Cero relleno oscuro
+            borderRadius: BorderRadius.circular(8),
             border: border,
+            boxShadow: const [
+              // Capa oscura: Sombra de caída que hunde la tecla en el chasis
+              BoxShadow(color: Color(0x40000000), offset: Offset(0, 2.5), blurRadius: 2.5),
+              // Capa clara: Reflejo de luz en la arista superior
+              BoxShadow(color: Color(0x80FFFFFF), offset: Offset(0, -1), blurRadius: 1),
+            ],
           ),
-          child: DefaultTextStyle(
-            style: TextStyle(color: foregroundColor),
-            child: IconTheme(
-              data: IconThemeData(color: foregroundColor),
-              child: content,
-            ),
-          ),
+          child: isBack
+              ? Icon(Icons.backspace_outlined, color: fontColor, size: 22)
+              : Text(
+                  isClear ? 'C' : key,
+                  style: TextStyle(
+                    color: fontColor,
+                    fontSize: 25,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
         ),
       ),
     );

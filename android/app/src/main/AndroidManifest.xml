@@ -20,6 +20,7 @@
         tools:targetApi="33"
         android:icon="@mipmap/ic_launcher"
         android:largeHeap="true"
+        android:hardwareAccelerated="true"
         android:allowBackup="false"
         android:fullBackupContent="false"
         android:enableOnBackInvokedCallback="true">

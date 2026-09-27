@@ -8,6 +8,7 @@ import '../../printer/screens/printer_settings_screen.dart';
 import '../../cash_cut/screens/shifts_history_screen.dart';
 import '../../cash_cut/services/shift_policy_service.dart';
 import 'package:oktane_pos/core/theme/theme_service.dart';
+import 'package:oktane_pos/ui/screens/login_screen.dart';
 import 'menu_management_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -315,6 +316,41 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  void _confirmLogout() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.logout, color: Colors.red),
+            SizedBox(width: 8),
+            Text('Cerrar Sesión', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: const Text('¿Estás seguro de que deseas salir de la aplicación?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+            onPressed: () async {
+              Navigator.pop(ctx);
+              final auth = context.read<AuthProvider>();
+              await auth.logout();
+              if (mounted) {
+                Navigator.pushAndRemoveUntil(
+                  context,
+                  MaterialPageRoute(builder: (context) => const LoginScreen()),
+                  (route) => false,
+                );
+              }
+            },
+            child: const Text('Cerrar Sesión'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final currentUser = Supabase.instance.client.auth.currentUser;
@@ -410,6 +446,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
               Navigator.push(context, MaterialPageRoute(builder: (context) => const ShiftsHistoryScreen()));
             },
           ),
+          const Divider(),
+          const SizedBox(height: 16),
+
+          // Logout Action Button
+          SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red[700],
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              icon: const Icon(Icons.logout, size: 20),
+              label: const Text('CERRAR SESIÓN', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+              onPressed: _confirmLogout,
+            ),
+          ),
+          const SizedBox(height: 24),
         ],
       ),
     );

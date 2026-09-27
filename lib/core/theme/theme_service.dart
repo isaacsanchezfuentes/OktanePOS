@@ -22,11 +22,11 @@ class ThemeService extends ChangeNotifier {
 
   // Constantes de botones funcionales de alto contraste
   static const Color keyAC = Color(0xFF16A34A);        // Verde Esmeralda
-  static const Color keyDEL = Color(0xFFEA580C);       // Ámbar/Naranja Vivo (Retroceso)
-  static const Color keyC = Color(0xFFDC2626);         // Rojo Intenso (CLEAR 'C')
+  static const Color keyDEL = Color(0xFFE5B324);       // Amarillo Mostaza Suave (Retroceso ⌫)
+  static const Color keyC = Color(0xFFC02626);         // Rojo Carmesí Vivo (CLEAR 'C')
   static const Color accentCobrar = Color(0xFF2563EB); // Azul Eléctrico para botón COBRAR
 
-  // Gradiente de Chasis de Aluminio Cepillado con reflejos de luz y brillo especular
+  // Gradiente de Chasis de Aluminio Cepillado Plateado brillante con brillo especular
   Gradient get currentChassisGradient {
     switch (currentTheme) {
       case AppThemeMode.classicBlue:
@@ -56,18 +56,17 @@ class ThemeService extends ChangeNotifier {
           stops: [0.0, 0.25, 0.50, 0.75, 1.0],
         );
       case AppThemeMode.slateIndustrial:
-      default:
         return const LinearGradient(
-          begin: Alignment(-0.8, -1.0),
-          end: Alignment(0.8, 1.0),
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
           colors: [
-            Color(0xFF1E242B),
-            Color(0xFF38434F), // Reflejo de luz metálica
-            Color(0xFF222931),
-            Color(0xFF43505E), // Brillo especular
-            Color(0xFF161A1F),
+            Color(0xFFE2E4E7),
+            Color(0xFFF7F8FA),
+            Color(0xFFBEC2C8),
+            Color(0xFFEFEFF2),
+            Color(0xFFB5BAC1),
           ],
-          stops: [0.0, 0.28, 0.52, 0.78, 1.0],
+          stops: [0.0, 0.25, 0.50, 0.75, 1.0],
         );
     }
   }
@@ -76,7 +75,7 @@ class ThemeService extends ChangeNotifier {
   Color get scaffoldBg {
     switch (currentTheme) {
       case AppThemeMode.slateIndustrial:
-        return const Color(0xFF262E35);
+        return const Color(0xFFE2E4E7);
       case AppThemeMode.classicBlue:
         return const Color(0xFF13428E);
       case AppThemeMode.classicPink:
@@ -87,7 +86,7 @@ class ThemeService extends ChangeNotifier {
   Color get cardSurface {
     switch (currentTheme) {
       case AppThemeMode.slateIndustrial:
-        return const Color(0xFF1C2229);
+        return const Color(0xFFD4D8DD);
       case AppThemeMode.classicBlue:
         return const Color(0xFF1B365D);
       case AppThemeMode.classicPink:
@@ -95,15 +94,15 @@ class ThemeService extends ChangeNotifier {
     }
   }
 
-  /// Display LCD claro universal verde retro (#D9EBD9) en todos los temas
-  Color get displayBg => const Color(0xFFD9EBD9);
+  /// Display LCD verde vintage claro (#C4D8C2 a #B2CAB0) en todos los temas
+  Color get displayBg => const Color(0xFFC4D8C2);
 
-  /// Tinta negra sólida (#0F172A) en todos los temas para máxima legibilidad LCD
+  /// Tinta negra/grafito sólida LCD (#0F172A / #152013) en todos los temas
   Color get displayText => const Color(0xFF0F172A);
 
-  Color get padButtonBg => const Color(0xFFFFFFFF); // Blanco puro en todos los temas
+  Color get padButtonBg => const Color(0xFFF8F9FA); // Blanco hueso / marfil de alta pureza
 
-  Color get padButtonText => const Color(0xFF111827); // Negro grafito profundo en todos los temas
+  Color get padButtonText => const Color(0xFF111827); // Negro grafito profundo
 
   Color get padBorder => const Color(0xFFCBD5E1);
 
@@ -111,21 +110,79 @@ class ThemeService extends ChangeNotifier {
 
   /// Retorna la configuración global de ThemeData para toda la app
   ThemeData get currentThemeData {
-    final isDark = currentTheme == AppThemeMode.slateIndustrial;
-
     return ThemeData(
       useMaterial3: true,
       scaffoldBackgroundColor: scaffoldBg,
       cardColor: cardSurface,
-      appBarTheme: AppBarTheme(
-        backgroundColor: scaffoldBg,
-        foregroundColor: Colors.white,
+      cardTheme: CardThemeData(
+        color: const Color(0xFFFFFFFF),
+        elevation: 1.5,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+          side: const BorderSide(color: Color(0xFFCBD5E1), width: 1.2),
+        ),
+      ),
+      appBarTheme: const AppBarTheme(
+        backgroundColor: Color(0xFF1E293B),
+        foregroundColor: Color(0xFFF8FAFC),
         elevation: 0,
+        titleTextStyle: TextStyle(
+          color: Color(0xFFF8FAFC),
+          fontSize: 18,
+          fontWeight: FontWeight.bold,
+        ),
+        iconTheme: IconThemeData(color: Color(0xFFF8FAFC)),
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: const Color(0xFFFFFFFF),
+        hintStyle: const TextStyle(
+          color: Color(0xFF475569),
+          fontSize: 13,
+          fontWeight: FontWeight.w500,
+        ),
+        labelStyle: const TextStyle(
+          color: Color(0xFF0F172A),
+          fontSize: 13,
+          fontWeight: FontWeight.bold,
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: Color(0xFF334155), width: 1.5),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: Color(0xFF1D4ED8), width: 2.0),
+        ),
+      ),
+      textTheme: const TextTheme(
+        displayLarge: TextStyle(color: Color(0xFF0F172A), fontWeight: FontWeight.bold),
+        headlineMedium: TextStyle(color: Color(0xFF0F172A), fontWeight: FontWeight.bold),
+        titleLarge: TextStyle(color: Color(0xFF0F172A), fontWeight: FontWeight.w800),
+        bodyLarge: TextStyle(color: Color(0xFF1E293B)),
+        bodyMedium: TextStyle(color: Color(0xFF1E293B)),
+        bodySmall: TextStyle(color: Color(0xFF334155)),
+        labelSmall: TextStyle(color: Color(0xFF334155)),
+      ),
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: const Color(0xFF1D4ED8),
+          foregroundColor: const Color(0xFFFFFFFF),
+          textStyle: const TextStyle(fontWeight: FontWeight.w800),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          foregroundColor: const Color(0xFF1E293B),
+          side: const BorderSide(color: Color(0xFF475569), width: 1.5),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
       ),
       colorScheme: ColorScheme.fromSeed(
         seedColor: accentCobrar,
-        surface: cardSurface,
-        brightness: isDark ? Brightness.dark : Brightness.light,
+        surface: const Color(0xFFFFFFFF),
+        brightness: Brightness.light,
       ),
     );
   }

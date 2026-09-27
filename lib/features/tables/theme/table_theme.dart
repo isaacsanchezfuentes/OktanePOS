@@ -6,13 +6,13 @@ class TableTheme {
   static const Color bg900 = Color(0xFF151A21); // Contenido principal
   static const Color bg800 = Color(0xFF1E252D); // Tarjetas, paneles, tickets
   static const Color bg700 = Color(0xFF2A333D); // Elevado / hover
-  static const Color border = Color(0xFF3A454F); // Divisores sutiles
-  static const Color borderStrong = Color(0xFF4C5964); // Bordes de foco/hover
+  static const Color border = Color(0xFFCBD5E1); // Divisores sutiles
+  static const Color borderStrong = Color(0xFF334155); // Bordes de foco/hover
 
   // Tipografía
-  static const Color textPrimary = Color(0xFFECEFF2);   // Texto principal, montos
-  static const Color textSecondary = Color(0xFF9AA5AF); // Etiquetas, texto de apoyo
-  static const Color textMuted = Color(0xFF667079);     // Placeholders, metadatos
+  static const Color textPrimary = Color(0xFF0F172A);   // Texto principal, montos (Pizarra casi negro)
+  static const Color textSecondary = Color(0xFF334155); // Etiquetas, texto de apoyo
+  static const Color textMuted = Color(0xFF475569);     // Placeholders, metadatos
 
   // Acento (Azul Industrial)
   static const Color accent = Color(0xFF2E90E5);      // Acción principal: cobrar, confirmar

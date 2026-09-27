@@ -3,7 +3,6 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:oktane_pos/providers/auth_provider.dart';
-import 'package:oktane_pos/ui/screens/login_screen.dart';
 import '../services/charge_service.dart';
 import '../widgets/amount_display.dart';
 import '../widgets/pos_keypad.dart';
@@ -11,8 +10,6 @@ import '../widgets/payment_method_bottom_sheet.dart';
 import '../widgets/item_pre_add_dialog.dart';
 import 'charges_history_screen.dart';
 import '../../printer/screens/printer_settings_screen.dart';
-import '../../cash_cut/screens/cash_cut_screen.dart';
-import '../../cash_cut/screens/cash_calendar_screen.dart';
 import '../../cash_cut/services/shift_service.dart';
 import '../../tables/theme/table_theme.dart';
 import 'package:oktane_pos/core/localization/app_locale.dart';
@@ -466,10 +463,11 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
       SnackBar(
         content: Row(
           children: [
-            const Text('👨‍🍳 ', style: TextStyle(fontSize: 20)),
+            const Icon(Icons.send_rounded, color: Colors.white, size: 20),
+            const SizedBox(width: 8),
             Expanded(
               child: Text(
-                'Comanda enviada a cocina (\$${_amount.toStringAsFixed(2)} MXN) en $_selectedTableLabel',
+                'Comanda enviada a preparación (\$${_amount.toStringAsFixed(2)} MXN) en $_selectedTableLabel',
                 style: const TextStyle(fontWeight: FontWeight.bold),
               ),
             ),
@@ -573,77 +571,8 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
     super.dispose();
   }
 
-  Future<void> _checkManagerAccessAndNavigate(Widget destination) async {
-    final auth = context.read<AuthProvider>();
-    final isManager = _rbacService.isManagerOrAdmin(auth.rol);
-
-    if (isManager) {
-      Navigator.push(context, MaterialPageRoute(builder: (context) => destination));
-      return;
-    }
-
-    final pinCtrl = TextEditingController();
-    final formKey = GlobalKey<FormState>();
-
-    final bool? granted = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Row(
-          children: [
-            Icon(Icons.security, color: Colors.indigo),
-            SizedBox(width: 8),
-            Text('PIN de Gerente Requerido', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-          ],
-        ),
-        content: Form(
-          key: formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text('El acceso a este módulo administrativo requiere autorización de supervisor.'),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: pinCtrl,
-                keyboardType: TextInputType.number,
-                obscureText: true,
-                maxLength: 4,
-                decoration: const InputDecoration(
-                  labelText: 'PIN de Gerente',
-                  border: OutlineInputBorder(),
-                ),
-                validator: (v) => (v == null || v.trim().length < 4) ? '4 dígitos requeridos' : null,
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
-          ElevatedButton(
-            onPressed: () async {
-              if (!formKey.currentState!.validate()) return;
-              final isValid = await _rbacService.verifyManagerPin(pinCtrl.text.trim());
-              if (ctx.mounted) {
-                Navigator.pop(ctx, isValid);
-              }
-            },
-            child: const Text('Desbloquear'),
-          ),
-        ],
-      ),
-    );
-
-    if (granted == true && mounted) {
-      Navigator.push(context, MaterialPageRoute(builder: (context) => destination));
-    } else if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('❌ Acceso denegado: PIN de gerente requerido'), backgroundColor: Colors.red),
-      );
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
-    final auth = context.watch<AuthProvider>();
     final menuItems = _menuService.getMenuItems(activeOnly: true);
 
     final activeUser = Supabase.instance.client.auth.currentUser;
@@ -667,13 +596,51 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
     }
 
     return Scaffold(
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
         titleSpacing: 16,
-        title: const Text('Cobro Rápido', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+        flexibleSpace: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [Color(0xFF3B3836), Color(0xFF4A4644)],
+            ),
+          ),
+        ),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        title: const Text('Cobro Rápido', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Color(0xFFE2E8F0))),
         actions: [
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.local_fire_department_rounded,
+                    size: 20,
+                    color: Color(0xFFF97316),
+                  ),
+                  const SizedBox(width: 4),
+                  RichText(
+                    text: const TextSpan(
+                      children: [
+                        TextSpan(
+                          text: 'Oktane ',
+                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16),
+                        ),
+                        TextSpan(
+                          text: 'POS',
+                          style: TextStyle(color: Color(0xFF38BDF8), fontWeight: FontWeight.w900, fontSize: 16),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(width: 12),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 4),
                 child: ListenableBuilder(
@@ -686,13 +653,13 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
                         decoration: BoxDecoration(
-                          color: Colors.indigo[50],
+                          color: const Color(0xFF1E293B),
                           borderRadius: BorderRadius.circular(6),
-                          border: Border.all(color: Colors.indigo[200]!, width: 0.8),
+                          border: Border.all(color: const Color(0xFF475569), width: 0.8),
                         ),
                         child: Text(
                           isEs ? '🇲🇽 ES' : '🇺🇸 EN',
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Colors.indigo),
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Color(0xFFE2E8F0)),
                         ),
                       ),
                     );
@@ -700,28 +667,13 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
                 ),
               ),
               IconButton(
-                icon: const Icon(Icons.settings_outlined),
+                icon: const Icon(Icons.settings_outlined, color: Color(0xFFE2E8F0)),
                 tooltip: 'Ajustes',
-                constraints: const BoxConstraints(),
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                visualDensity: VisualDensity.compact,
-                onPressed: () {
-                  Navigator.push(context, MaterialPageRoute(builder: (context) => const SettingsScreen()));
-                },
-              ),
-              IconButton(
-                icon: const Icon(Icons.logout),
-                tooltip: 'Cerrar Sesión',
                 constraints: const BoxConstraints(),
                 padding: const EdgeInsets.fromLTRB(4, 0, 12, 0),
                 visualDensity: VisualDensity.compact,
-                onPressed: () async {
-                  final navigator = Navigator.of(context);
-                  await auth.logout();
-                  navigator.pushAndRemoveUntil(
-                    MaterialPageRoute(builder: (context) => const LoginScreen()),
-                    (route) => false,
-                  );
+                onPressed: () {
+                  Navigator.push(context, MaterialPageRoute(builder: (context) => const SettingsScreen()));
                 },
               ),
             ],
@@ -729,344 +681,514 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
         ],
       ),
       resizeToAvoidBottomInset: false,
-      body: ListenableBuilder(
-        listenable: Listenable.merge([AppLocale.instance, ThemeService.instance]),
-        builder: (context, _) {
-          final theme = ThemeService.instance;
-          return Container(
-            decoration: BoxDecoration(
-              gradient: theme.currentChassisGradient,
-            ),
-            child: SafeArea(
-              child: Column(
-                children: [
-                  // Amount Display Top Banner with Embedded Retro LCD Action Shortcuts
-                  AmountDisplay(
-                    amount: _amount,
-                    rawInput: _rawInput,
-                    onTapTables: () {
-                      Navigator.push(context, MaterialPageRoute(builder: (context) => const TablesMapScreen()));
-                    },
-                    onTapPrinter: () {
-                      Navigator.push(context, MaterialPageRoute(builder: (context) => const PrinterSettingsScreen()));
-                    },
-                    onTapHistory: () {
-                      Navigator.push(context, MaterialPageRoute(builder: (context) => const ChargesHistoryScreen()));
-                    },
-                  ),
+      body: OrientationBuilder(
+        builder: (context, orientation) {
+          final isLandscape = orientation == Orientation.landscape;
 
-                // Sub-strip: "MANDAR COCINA" on left, "Oktane POS" text branding on right
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
-                  child: Row(
+          return Stack(
+            children: [
+              // Base Layer: Pre-rendered Photorealistic 3D Faceplate Image (Radial Brushed Aluminium)
+              Positioned.fill(
+                child: Image.asset(
+                  'assets/images/faceplates/Gemini_Generated_Image_cpngq2cpngq2cpng.jpg',
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) {
+                    debugPrint('🔴 ERROR CARGANDO ASSET RADIAL: $error');
+                    return Container(
+                      color: Colors.red,
+                      child: Center(
+                        child: Text('Error: $error', style: const TextStyle(color: Colors.white)),
+                      ),
+                    );
+                  },
+                ),
+              ),
+
+              // Foreground Interactive Widgets Floating Exactly Over 3D Sockets
+              SafeArea(
+                child: isLandscape
+                    ? _buildLandscapeLayout(context, availableTables, activeUserName, waitersList, menuItems)
+                    : _buildPortraitLayout(context, availableTables, activeUserName, waitersList, menuItems),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildPortraitLayout(
+    BuildContext context,
+    List<String> availableTables,
+    String activeUserName,
+    List<Map<String, String>> waitersList,
+    List<MenuItemModel> menuItems,
+  ) {
+    return Column(
+      children: [
+        AmountDisplay(
+          amount: _amount,
+          rawInput: _rawInput,
+          onTapTables: () {
+            Navigator.push(context, MaterialPageRoute(builder: (context) => const TablesMapScreen()));
+          },
+          onTapPrinter: () {
+            Navigator.push(context, MaterialPageRoute(builder: (context) => const PrinterSettingsScreen()));
+          },
+          onTapHistory: () {
+            Navigator.push(context, MaterialPageRoute(builder: (context) => const ChargesHistoryScreen()));
+          },
+        ),
+        _buildSubStrip(ThemeService.instance),
+        _buildControlsCard(ThemeService.instance, availableTables, activeUserName, waitersList, menuItems),
+        Expanded(
+          child: PosKeypad(
+            onKeyTap: _handleKeyTap,
+          ),
+        ),
+        _buildCobrarButton(ThemeService.instance),
+      ],
+    );
+  }
+
+  Widget _buildLandscapeLayout(
+    BuildContext context,
+    List<String> availableTables,
+    String activeUserName,
+    List<Map<String, String>> waitersList,
+    List<MenuItemModel> menuItems,
+  ) {
+    return Column(
+      children: [
+        Expanded(
+          child: Row(
+            children: [
+              Expanded(
+                flex: 6,
+                child: SingleChildScrollView(
+                  physics: const BouncingScrollPhysics(),
+                  child: Column(
                     children: [
-                      Expanded(
-                        child: SizedBox(
-                          height: 42,
-                          child: OutlinedButton.icon(
-                            onPressed: _amount > 0
-                                ? () {
-                                    if (_pendingOrderItems.isEmpty) {
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        const SnackBar(
-                                          content: Text('Para mandar a cocina selecciona al menos un platillo o bebida del menú.'),
-                                          backgroundColor: Colors.orange,
-                                          duration: Duration(seconds: 3),
-                                        ),
-                                      );
-                                      return;
-                                    }
-                                    _sendOrderToKitchen();
-                                  }
-                                : null,
-                            icon: const Icon(Icons.soup_kitchen, size: 20),
-                            label: FittedBox(
-                              child: Text(
-                                '👨‍🍳 ${tr('send_kitchen')}',
-                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-                              ),
-                            ),
-                            style: OutlinedButton.styleFrom(
-                              side: BorderSide(color: _amount > 0 ? theme.accentAction : Colors.grey[600]!),
-                              foregroundColor: theme.displayText,
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                            ),
-                          ),
-                        ),
+                      AmountDisplay(
+                        amount: _amount,
+                        rawInput: _rawInput,
+                        onTapTables: () {
+                          Navigator.push(context, MaterialPageRoute(builder: (context) => const TablesMapScreen()));
+                        },
+                        onTapPrinter: () {
+                          Navigator.push(context, MaterialPageRoute(builder: (context) => const PrinterSettingsScreen()));
+                        },
+                        onTapHistory: () {
+                          Navigator.push(context, MaterialPageRoute(builder: (context) => const ChargesHistoryScreen()));
+                        },
                       ),
-                      const SizedBox(width: 12),
-                      // Stylized "Oktane POS" brand header (matching LoginScreen)
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF0A1128),
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: const Color(0xFF00B0FF).withValues(alpha: 0.5), width: 1),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            ShaderMask(
-                              shaderCallback: (bounds) => const LinearGradient(
-                                begin: Alignment.bottomCenter,
-                                end: Alignment.topCenter,
-                                colors: [
-                                  Color(0xFF0D47A1),
-                                  Color(0xFF00B0FF),
-                                  Color(0xFF00E5FF),
-                                ],
-                              ).createShader(bounds),
-                              child: const Icon(
-                                Icons.local_fire_department_rounded,
-                                size: 18,
-                                color: Colors.white,
-                              ),
-                            ),
-                            const SizedBox(width: 6),
-                            RichText(
-                              text: const TextSpan(
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w900,
-                                  letterSpacing: 0.8,
-                                ),
-                                children: [
-                                  TextSpan(text: 'Oktane', style: TextStyle(color: Colors.white)),
-                                  TextSpan(text: ' POS', style: TextStyle(color: Color(0xFF00E5FF))),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
+                      _buildSubStrip(ThemeService.instance),
+                      _buildControlsCard(ThemeService.instance, availableTables, activeUserName, waitersList, menuItems),
                     ],
                   ),
                 ),
+              ),
+              Expanded(
+                flex: 5,
+                child: PosKeypad(
+                  onKeyTap: _handleKeyTap,
+                ),
+              ),
+            ],
+          ),
+        ),
+        _buildCobrarButton(ThemeService.instance),
+      ],
+    );
+  }
 
-                // Responsive Controls Section
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 2.0),
-                  child: Card(
-                    elevation: 0,
-                    color: theme.cardSurface,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    child: Padding(
-                      padding: const EdgeInsets.all(12.0),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          // Table & Waiter Selectors
-                          Row(
-                            children: [
-                              Expanded(
-                                child: DropdownButtonFormField<String>(
-                                  initialValue: _selectedTableLabel,
-                                  isExpanded: true,
-                                  dropdownColor: theme.cardSurface,
-                                  iconEnabledColor: const Color(0xFFFFFFFF),
-                                  style: const TextStyle(color: Color(0xFFFFFFFF), fontSize: 12, fontWeight: FontWeight.w600),
-                                  decoration: InputDecoration(
-                                    labelText: tr('table_location'),
-                                    labelStyle: const TextStyle(color: Color(0xFFE2E8F0), fontSize: 12),
-                                    border: const OutlineInputBorder(),
-                                    enabledBorder: const OutlineInputBorder(borderSide: BorderSide(color: TableTheme.borderStrong)),
-                                    focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: theme.accentAction, width: 1.5)),
-                                    contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                  ),
-                                  items: availableTables.map((t) => DropdownMenuItem(value: t, child: Text(t, style: const TextStyle(color: Color(0xFFFFFFFF), fontSize: 12, fontWeight: FontWeight.w600)))).toList(),
-                                  onChanged: (val) {
-                                    if (val != null) setState(() => _selectedTableLabel = val);
-                                  },
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: DropdownButtonFormField<String>(
-                                  initialValue: _selectedWaiterName ?? activeUserName,
-                                  isExpanded: true,
-                                  dropdownColor: theme.cardSurface,
-                                  iconEnabledColor: const Color(0xFFFFFFFF),
-                                  style: const TextStyle(color: Color(0xFFFFFFFF), fontSize: 12, fontWeight: FontWeight.w600),
-                                  decoration: InputDecoration(
-                                    labelText: tr('waiter_service'),
-                                    labelStyle: const TextStyle(color: Color(0xFFE2E8F0), fontSize: 12),
-                                    border: const OutlineInputBorder(),
-                                    enabledBorder: const OutlineInputBorder(borderSide: BorderSide(color: TableTheme.borderStrong)),
-                                    focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: theme.accentAction, width: 1.5)),
-                                    contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                  ),
-                                  items: waitersList.map((w) {
-                                    return DropdownMenuItem<String>(
-                                      value: w['name'],
-                                      child: Text(w['name']!, style: const TextStyle(color: Color(0xFFFFFFFF), fontSize: 12, fontWeight: FontWeight.w600), overflow: TextOverflow.ellipsis),
-                                    );
-                                  }).toList(),
-                                  onChanged: (val) {
-                                    if (val != null) {
-                                      final selected = waitersList.firstWhere((w) => w['name'] == val);
-                                      _onWaiterChanged(selected['name']!, selected['id']!);
-                                    }
-                                  },
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 6),
+  Widget _buildSubStrip(ThemeService theme) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
+      child: Container(
+        width: double.infinity,
+        height: 44,
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFFD97706), Color(0xFFC2410C), Color(0xFF9A3412)],
+            stops: [0.0, 0.5, 1.0],
+          ),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: const Color(0xFFFDBA74), width: 1.0),
+          boxShadow: const [
+            BoxShadow(color: Color(0x40000000), offset: Offset(0, 2.5), blurRadius: 3),
+            BoxShadow(color: Color(0x66FFFFFF), offset: Offset(0, -1), blurRadius: 1),
+          ],
+        ),
+        child: ElevatedButton.icon(
+          onPressed: _amount > 0
+              ? () {
+                  if (_pendingOrderItems.isEmpty) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Para mandar a preparación selecciona al menos un platillo o bebida del menú.'),
+                        backgroundColor: Colors.orange,
+                        duration: Duration(seconds: 3),
+                      ),
+                    );
+                    return;
+                  }
+                  _sendOrderToKitchen();
+                }
+              : null,
+          icon: const Icon(Icons.send_rounded, size: 18, color: Colors.white),
+          label: const FittedBox(
+            child: Text(
+              'MANDAR A PREPARACIÓN',
+              style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13, letterSpacing: 0.5, color: Colors.white),
+            ),
+          ),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.transparent,
+            disabledBackgroundColor: Colors.transparent,
+            shadowColor: Colors.transparent,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          ),
+        ),
+      ),
+    );
+  }
 
-                          // Quick Order Navigation Button
-                          SizedBox(
-                            width: double.infinity,
-                            height: 38,
-                            child: ElevatedButton.icon(
-                              onPressed: _navigateToTableOrderDetail,
-                              icon: const Icon(Icons.assignment_outlined, size: 18),
-                              label: Text('📋 ${tr('view_table')}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.indigo[800],
-                                foregroundColor: Colors.white,
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-
-                          // Menu Autocomplete Search Bar
-                          Autocomplete<MenuItemModel>(
-                            optionsBuilder: (TextEditingValue textEditingValue) {
-                              if (textEditingValue.text.isEmpty) {
-                                return const Iterable<MenuItemModel>.empty();
-                              }
-                              return menuItems.where((item) {
-                                return item.name.toLowerCase().contains(textEditingValue.text.toLowerCase());
-                              });
-                            },
-                            displayStringForOption: (option) => option.name,
-                            onSelected: _onMenuItemSelected,
-                            fieldViewBuilder: (context, controller, focusNode, onEditingComplete) {
-                              _menuSearchController = controller;
-                              return TextField(
-                                controller: controller,
-                                focusNode: focusNode,
-                                style: const TextStyle(color: TableTheme.textPrimary, fontSize: 13),
-                                decoration: InputDecoration(
-                                  hintText: '🔍 ${tr('search_menu')}',
-                                  hintStyle: const TextStyle(color: TableTheme.textMuted, fontSize: 12),
-                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                                  enabledBorder: const OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(8)), borderSide: BorderSide(color: TableTheme.borderStrong)),
-                                  focusedBorder: OutlineInputBorder(borderRadius: const BorderRadius.all(Radius.circular(8)), borderSide: BorderSide(color: theme.accentAction, width: 1.5)),
-                                  contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                ),
-                              );
-                            },
-                          ),
-
-                          // Pending Products Card ("En Corto")
-                          if (_pendingOrderItems.isNotEmpty) ...[
-                            const SizedBox(height: 6),
-                            ConstrainedBox(
-                              constraints: const BoxConstraints(maxHeight: 140),
-                              child: SingleChildScrollView(
-                                physics: const BouncingScrollPhysics(),
-                                child: Column(
-                                  children: _pendingOrderItems.asMap().entries.map((entry) {
-                                    final index = entry.key;
-                                    final item = entry.value;
-                                    final name = item['name']?.toString() ?? 'Producto';
-                                    final price = (item['price'] as num?)?.toDouble() ?? 0.0;
-                                    final qty = (item['quantity'] as num?)?.toInt() ?? 1;
-                                    final subtotal = (item['subtotal'] as num?)?.toDouble() ?? 0.0;
-                                    final isTakeaway = item['is_takeaway'] == true;
-                                    final notes = item['notes']?.toString() ?? '';
-
-                                    return Card(
-                                      margin: const EdgeInsets.only(top: 4),
-                                      elevation: 2,
-                                      color: const Color(0xFFF8FAFC),
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(10),
-                                        side: const BorderSide(color: Color(0xFFCBD5E1)),
-                                      ),
-                                      child: ListTile(
-                                        dense: true,
-                                        onTap: () => _editPendingItem(index),
-                                        leading: const Icon(Icons.edit_note, color: Color(0xFF2563EB), size: 22),
-                                        title: Text('${qty}x $name', style: const TextStyle(color: Color(0xFF0F172A), fontWeight: FontWeight.bold, fontSize: 13)),
-                                        subtitle: Wrap(
-                                          spacing: 4,
-                                          runSpacing: 2,
-                                          children: [
-                                            Text('\$$price c/u', style: const TextStyle(color: Color(0xFF475569), fontSize: 11, fontWeight: FontWeight.w600)),
-                                            if (notes.isNotEmpty) Text('• $notes', style: const TextStyle(color: Color(0xFF475569), fontSize: 10)),
-                                            if (isTakeaway)
-                                              Container(
-                                                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                                                decoration: BoxDecoration(color: Colors.deepOrange[100], borderRadius: BorderRadius.circular(4)),
-                                                child: const Text('Para llevar (+\$5)', style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.deepOrange)),
-                                              ),
-                                          ],
-                                        ),
-                                        trailing: Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Text(_formatCurrency(subtotal), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF2563EB))),
-                                            const SizedBox(width: 4),
-                                            IconButton(
-                                              icon: const Icon(Icons.clear, size: 18, color: Color(0xFFDC2626)),
-                                              onPressed: () => _removePendingItem(index),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    );
-                                  }).toList(),
-                                ),
-                              ),
-                            ),
-                          ],
+  Widget _buildControlsCard(
+    ThemeService theme,
+    List<String> availableTables,
+    String activeUserName,
+    List<Map<String, String>> waitersList,
+    List<MenuItemModel> menuItems,
+  ) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 2.0),
+      child: Card(
+        elevation: 0,
+        color: Colors.transparent,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: Padding(
+          padding: const EdgeInsets.all(12.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: const Color(0x1AFFFFFF),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: const Color(0xFF64748B), width: 1.1),
+                        boxShadow: const [
+                          BoxShadow(color: Color(0x22000000), offset: Offset(0, 1.5), blurRadius: 1.5),
+                          BoxShadow(color: Color(0x66FFFFFF), offset: Offset(0, -1), blurRadius: 0.5),
                         ],
+                      ),
+                      child: DropdownButtonFormField<String>(
+                        initialValue: _selectedTableLabel,
+                        isExpanded: true,
+                        dropdownColor: const Color(0xFFF8FAFC),
+                        iconEnabledColor: const Color(0xFF0F172A),
+                        style: const TextStyle(color: Color(0xFF0F172A), fontSize: 13, fontWeight: FontWeight.w800),
+                        decoration: InputDecoration(
+                          labelText: tr('table_location'),
+                          labelStyle: const TextStyle(color: Color(0xFF0F172A), fontSize: 11, fontWeight: FontWeight.bold),
+                          border: InputBorder.none,
+                          enabledBorder: InputBorder.none,
+                          focusedBorder: InputBorder.none,
+                          filled: false,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        ),
+                        items: availableTables.map((t) => DropdownMenuItem(value: t, child: Text(t, style: const TextStyle(color: Color(0xFF0F172A), fontSize: 13, fontWeight: FontWeight.w800)))).toList(),
+                        onChanged: (val) {
+                          if (val != null) setState(() => _selectedTableLabel = val);
+                        },
                       ),
                     ),
                   ),
-                ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: const Color(0x1AFFFFFF),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: const Color(0xFF64748B), width: 1.1),
+                        boxShadow: const [
+                          BoxShadow(color: Color(0x22000000), offset: Offset(0, 1.5), blurRadius: 1.5),
+                          BoxShadow(color: Color(0x66FFFFFF), offset: Offset(0, -1), blurRadius: 0.5),
+                        ],
+                      ),
+                      child: DropdownButtonFormField<String>(
+                        initialValue: _selectedWaiterName ?? activeUserName,
+                        isExpanded: true,
+                        dropdownColor: const Color(0xFFF8FAFC),
+                        iconEnabledColor: const Color(0xFF0F172A),
+                        style: const TextStyle(color: Color(0xFF0F172A), fontSize: 13, fontWeight: FontWeight.w800),
+                        decoration: InputDecoration(
+                          labelText: tr('waiter_service'),
+                          labelStyle: const TextStyle(color: Color(0xFF0F172A), fontSize: 11, fontWeight: FontWeight.bold),
+                          border: InputBorder.none,
+                          enabledBorder: InputBorder.none,
+                          focusedBorder: InputBorder.none,
+                          filled: false,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        ),
+                        items: waitersList.map((w) {
+                          return DropdownMenuItem<String>(
+                            value: w['name'],
+                            child: Text(w['name']!, style: const TextStyle(color: Color(0xFF0F172A), fontSize: 13, fontWeight: FontWeight.w800), overflow: TextOverflow.ellipsis),
+                          );
+                        }).toList(),
+                        onChanged: (val) {
+                          if (val != null) {
+                            final selected = waitersList.firstWhere((w) => w['name'] == val);
+                            _onWaiterChanged(selected['name']!, selected['id']!);
+                          }
+                        },
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
 
-                // POS Keypad
-                Expanded(
-                  child: PosKeypad(
-                    onKeyTap: _handleKeyTap,
+              SizedBox(
+                width: double.infinity,
+                height: 40,
+                child: Container(
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [Color(0xFF2563EB), Color(0xFF1D4ED8), Color(0xFF1E3A8A)],
+                      stops: [0.0, 0.5, 1.0],
+                    ),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: const Color(0xFF93C5FD), width: 1.0),
+                    boxShadow: const [
+                      BoxShadow(color: Color(0x40000000), offset: Offset(0, 2.5), blurRadius: 3),
+                      BoxShadow(color: Color(0x4DFFFFFF), offset: Offset(0, -1), blurRadius: 1),
+                    ],
+                  ),
+                  child: ElevatedButton.icon(
+                    onPressed: _navigateToTableOrderDetail,
+                    icon: const Icon(Icons.assignment_outlined, size: 18, color: Colors.white),
+                    label: Text(
+                      '📋 ${tr('view_table')}',
+                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Colors.white),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.transparent,
+                      disabledBackgroundColor: Colors.transparent,
+                      shadowColor: Colors.transparent,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
                   ),
                 ),
+              ),
+              const SizedBox(height: 6),
 
-                // Operational Action Button: Cobrar (Full-Width)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 10.0),
-                  child: SizedBox(
-                    width: double.infinity,
-                    height: 54,
-                    child: ElevatedButton.icon(
-                      onPressed: _amount > 0 ? _openPaymentModal : null,
-                      icon: const Icon(Icons.shopping_cart_checkout, size: 22),
-                      label: FittedBox(
-                        child: Text(
-                          '${tr('charge')} ${_formatAmount(_amount)}',
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, letterSpacing: 0.5),
-                        ),
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: theme.accentAction,
-                        disabledBackgroundColor: Colors.grey[700],
-                        foregroundColor: Colors.white,
-                        elevation: _amount > 0 ? 4 : 0,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                      ),
+              Autocomplete<MenuItemModel>(
+                optionsBuilder: (TextEditingValue textEditingValue) {
+                  if (textEditingValue.text.isEmpty) {
+                    return const Iterable<MenuItemModel>.empty();
+                  }
+                  return menuItems.where((item) {
+                    return item.name.toLowerCase().contains(textEditingValue.text.toLowerCase());
+                  });
+                },
+                displayStringForOption: (option) => option.name,
+                onSelected: _onMenuItemSelected,
+                fieldViewBuilder: (context, controller, focusNode, onEditingComplete) {
+                  _menuSearchController = controller;
+                  return TextField(
+                    controller: controller,
+                    focusNode: focusNode,
+                    style: const TextStyle(color: TableTheme.textPrimary, fontSize: 13),
+                    decoration: InputDecoration(
+                      hintText: '🔍 ${tr('search_menu')}',
+                      hintStyle: const TextStyle(color: TableTheme.textMuted, fontSize: 12),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                      enabledBorder: const OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(8)), borderSide: BorderSide(color: TableTheme.borderStrong)),
+                      focusedBorder: OutlineInputBorder(borderRadius: const BorderRadius.all(Radius.circular(8)), borderSide: BorderSide(color: theme.accentAction, width: 1.5)),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      filled: true,
+                      fillColor: const Color(0xFFF1F5F9),
+                    ),
+                  );
+                },
+              ),
+
+              if (_pendingOrderItems.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 140),
+                  child: SingleChildScrollView(
+                    physics: const BouncingScrollPhysics(),
+                    child: Column(
+                      children: _pendingOrderItems.asMap().entries.map((entry) {
+                        final index = entry.key;
+                        final item = entry.value;
+                        final name = item['name']?.toString() ?? 'Producto';
+                        final price = (item['price'] as num?)?.toDouble() ?? 0.0;
+                        final qty = (item['quantity'] as num?)?.toInt() ?? 1;
+                        final subtotal = (item['subtotal'] as num?)?.toDouble() ?? 0.0;
+                        final isTakeaway = item['is_takeaway'] == true;
+                        final notes = item['notes']?.toString() ?? '';
+
+                        return Card(
+                          margin: const EdgeInsets.only(top: 4),
+                          elevation: 2,
+                          color: const Color(0xFFF8FAFC),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            side: const BorderSide(color: Color(0xFFCBD5E1)),
+                          ),
+                          child: ListTile(
+                            dense: true,
+                            onTap: () => _editPendingItem(index),
+                            leading: const Icon(Icons.edit_note, color: Color(0xFF2563EB), size: 22),
+                            title: Text('${qty}x $name', style: const TextStyle(color: Color(0xFF0F172A), fontWeight: FontWeight.bold, fontSize: 13)),
+                            subtitle: Wrap(
+                              spacing: 4,
+                              runSpacing: 2,
+                              children: [
+                                Text('\$$price c/u', style: const TextStyle(color: Color(0xFF475569), fontSize: 11, fontWeight: FontWeight.w600)),
+                                if (notes.isNotEmpty) Text('• $notes', style: const TextStyle(color: Color(0xFF475569), fontSize: 10)),
+                                if (isTakeaway)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                    decoration: BoxDecoration(color: Colors.deepOrange[100], borderRadius: BorderRadius.circular(4)),
+                                    child: const Text('Para llevar (+\$5)', style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.deepOrange)),
+                                  ),
+                              ],
+                            ),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(_formatCurrency(subtotal), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF2563EB))),
+                                const SizedBox(width: 4),
+                                IconButton(
+                                  icon: const Icon(Icons.clear, size: 18, color: Color(0xFFDC2626)),
+                                  onPressed: () => _removePendingItem(index),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      }).toList(),
                     ),
                   ),
                 ),
               ],
-            ),
+            ],
           ),
-        );
-      },
-    ),
-  );
-}
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCobrarButton(ThemeService theme) {
+    final bool isReadyToCharge = _amount > 0;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+      child: Container(
+        padding: const EdgeInsets.all(3.0),
+        decoration: BoxDecoration(
+          color: const Color(0xFF1E2226),
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: const [
+            BoxShadow(color: Color(0x99000000), offset: Offset(0, 3), blurRadius: 4),
+            BoxShadow(color: Color(0x66FFFFFF), offset: Offset(0, -1), blurRadius: 1),
+          ],
+        ),
+        child: isReadyToCharge
+            ? TweenAnimationBuilder<double>(
+                tween: Tween<double>(begin: 0.35, end: 0.85),
+                duration: const Duration(milliseconds: 1000),
+                builder: (context, animatedGlow, child) {
+                  return Container(
+                    width: double.infinity,
+                    height: 52,
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [Color(0xFF8CE680), Color(0xFF5BCE50)],
+                      ),
+                      borderRadius: BorderRadius.circular(13),
+                      border: Border.all(color: const Color(0xFF2E8525), width: 1.5),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFF4ADE80).withValues(alpha: animatedGlow),
+                          blurRadius: 10,
+                          spreadRadius: 2,
+                        ),
+                        const BoxShadow(color: Color(0x44000000), offset: Offset(0, 3), blurRadius: 3),
+                      ],
+                    ),
+                    child: child,
+                  );
+                },
+                child: ElevatedButton.icon(
+                  onPressed: _openPaymentModal,
+                  icon: const Icon(Icons.shopping_cart_checkout, size: 22, color: Color(0xFF092606)),
+                  label: FittedBox(
+                    child: Text(
+                      '🛒 ${tr('charge')} ${_formatAmount(_amount)}',
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontWeight: FontWeight.w900,
+                        fontSize: 16,
+                        letterSpacing: 1.2,
+                        color: Color(0xFF092606),
+                      ),
+                    ),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.transparent,
+                    disabledBackgroundColor: Colors.transparent,
+                    shadowColor: Colors.transparent,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)),
+                  ),
+                ),
+              )
+            : Container(
+                width: double.infinity,
+                height: 52,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF9CB49A),
+                  borderRadius: BorderRadius.circular(13),
+                  border: Border.all(color: const Color(0xFF6B8A69), width: 1.5),
+                ),
+                child: ElevatedButton.icon(
+                  onPressed: null,
+                  icon: const Icon(Icons.shopping_cart_checkout, size: 22, color: Color(0xFF2D3E2C)),
+                  label: FittedBox(
+                    child: Text(
+                      '${tr('charge')} ${_formatAmount(_amount)}',
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontWeight: FontWeight.w800,
+                        fontSize: 16,
+                        letterSpacing: 1.2,
+                        color: Color(0xFF2D3E2C),
+                      ),
+                    ),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.transparent,
+                    disabledBackgroundColor: Colors.transparent,
+                    shadowColor: Colors.transparent,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)),
+                  ),
+                ),
+              ),
+      ),
+    );
+  }
 }

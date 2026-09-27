@@ -209,7 +209,7 @@ class _ScannerQrScreenState extends State<ScannerQrScreen> {
             MobileScanner(
               controller: _controller!,
               fit: BoxFit.cover,
-              errorBuilder: (context, error, child) {
+              errorBuilder: (context, error) {
                 return Center(
                   child: Padding(
                     padding: const EdgeInsets.all(24.0),
@@ -260,7 +260,7 @@ class _ScannerQrScreenState extends State<ScannerQrScreen> {
                 width: focusBoxSize,
                 height: focusBoxSize,
                 decoration: BoxDecoration(
-                  border: Border.all(color: Colors.blueAccent.withOpacity(0.85), width: 2.5),
+                  border: Border.all(color: Colors.blueAccent.withValues(alpha: 0.85), width: 2.5),
                   borderRadius: BorderRadius.circular(16),
                 ),
               ),
@@ -275,7 +275,7 @@ class _ScannerQrScreenState extends State<ScannerQrScreen> {
               child: Container(
                 padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
                 decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.85),
+                  color: Colors.black.withValues(alpha: 0.85),
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(color: Colors.white24),
                 ),
