@@ -111,9 +111,9 @@ void main() {
       await tester.tap(find.text('5'));
       expect(tappedKey, '5');
 
-      // Tap key '00'
-      await tester.tap(find.text('00'));
-      expect(tappedKey, '00');
+      // Tap key '×10'
+      await tester.tap(find.text('×10'));
+      expect(tappedKey, '×10');
 
       // Tap key 'C'
       await tester.tap(find.text('C'));

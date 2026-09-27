@@ -7,6 +7,7 @@ import '../../../core/services/currency_service.dart';
 class AmountDisplay extends StatelessWidget {
   final double amount;
   final String rawInput;
+  final String? expression;
   final VoidCallback? onTapTables;
   final VoidCallback? onTapPrinter;
   final VoidCallback? onTapHistory;
@@ -15,6 +16,7 @@ class AmountDisplay extends StatelessWidget {
     super.key,
     required this.amount,
     required this.rawInput,
+    this.expression,
     this.onTapTables,
     this.onTapPrinter,
     this.onTapHistory,
@@ -193,7 +195,29 @@ class AmountDisplay extends StatelessWidget {
                 height: 1.2,
                 color: const Color(0xFF152013).withValues(alpha: 0.20),
               ),
-              const SizedBox(height: 4),
+
+              // Renglón Superior LCD: Desglose / Expresión de Operaciones
+              if (expression != null && expression!.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 2.0),
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: Text(
+                      expression!,
+                      style: TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                        color: displayText.withValues(alpha: 0.70),
+                        letterSpacing: 0.5,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ),
+
+              const SizedBox(height: 2),
               // Stack of Ghost Segments '888,888.88' (without $) + Active Value
               Stack(
                 alignment: Alignment.centerRight,

@@ -82,20 +82,52 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
     });
   }
 
+  bool _isScientificMode = false;
+  String _calculatorExpression = '';
+
   double get _amount => double.tryParse(_rawInput) ?? 0.0;
 
   void _handleKeyTap(String key) {
     setState(() {
-      if (key == 'CLEAR') {
+      if (key == 'CLEAR' || key == 'CA') {
         _rawInput = '0';
+        _calculatorExpression = '';
         _pendingOrderItems.clear();
         _conceptController.clear();
-      } else if (key == 'BACKSPACE') {
+      } else if (key == 'BACKSPACE' || key == 'DEL') {
         if (_rawInput.length > 1) {
           _rawInput = _rawInput.substring(0, _rawInput.length - 1);
         } else {
           _rawInput = '0';
         }
+        if (_calculatorExpression.isNotEmpty) {
+          _calculatorExpression = _calculatorExpression.substring(0, _calculatorExpression.length - 1);
+        }
+      } else if (key == '+' || key == '-' || key == '×' || key == '÷') {
+        _calculatorExpression = '$_rawInput $key ';
+        _rawInput = '0';
+      } else if (key == '=') {
+        if (_calculatorExpression.isNotEmpty) {
+          final parts = _calculatorExpression.trim().split(' ');
+          if (parts.length >= 2) {
+            final op1 = double.tryParse(parts[0]) ?? 0.0;
+            final operator = parts[1];
+            final op2 = double.tryParse(_rawInput) ?? 0.0;
+            double result = 0.0;
+            if (operator == '+') result = op1 + op2;
+            if (operator == '-') result = op1 - op2;
+            if (operator == '×') result = op1 * op2;
+            if (operator == '÷') result = op2 != 0 ? op1 / op2 : 0.0;
+
+            _calculatorExpression = '$op1 $operator $op2 =';
+            _rawInput = result.toStringAsFixed(2);
+          }
+        }
+      } else if (key == 'Ans') {
+        _rawInput = _amount.toStringAsFixed(2);
+      } else if (key == '×10') {
+        final val = _amount * 10;
+        _rawInput = val.toStringAsFixed(2);
       } else if (key == '.') {
         if (!_rawInput.contains('.')) {
           _rawInput = '$_rawInput.';
@@ -598,7 +630,7 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
     return Scaffold(
       extendBodyBehindAppBar: true,
       appBar: AppBar(
-        titleSpacing: 16,
+        titleSpacing: 8,
         flexibleSpace: Container(
           decoration: const BoxDecoration(
             gradient: LinearGradient(
@@ -610,7 +642,50 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
         ),
         backgroundColor: Colors.transparent,
         elevation: 0,
-        title: const Text('Cobro Rápido', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Color(0xFFE2E8F0))),
+        title: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 135),
+          child: InkWell(
+            onTap: () {
+              setState(() {
+                _isScientificMode = !_isScientificMode;
+              });
+            },
+            borderRadius: BorderRadius.circular(6),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: _isScientificMode ? const Color(0xFF1D4ED8) : const Color(0xFF1E293B),
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(
+                  color: _isScientificMode ? const Color(0xFF60A5FA) : const Color(0xFF475569),
+                  width: 0.8,
+                ),
+              ),
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      _isScientificMode ? Icons.bolt_rounded : Icons.calculate_outlined,
+                      size: 14,
+                      color: _isScientificMode ? const Color(0xFF38BDF8) : const Color(0xFFF97316),
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      _isScientificMode ? 'Cobro Rápido' : 'Calculadora',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
         actions: [
           Row(
             mainAxisSize: MainAxisSize.min,
@@ -729,6 +804,7 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
         AmountDisplay(
           amount: _amount,
           rawInput: _rawInput,
+          expression: _calculatorExpression,
           onTapTables: () {
             Navigator.push(context, MaterialPageRoute(builder: (context) => const TablesMapScreen()));
           },
@@ -744,6 +820,7 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
         Expanded(
           child: PosKeypad(
             onKeyTap: _handleKeyTap,
+            isScientificMode: _isScientificMode,
           ),
         ),
         _buildCobrarButton(ThemeService.instance),
@@ -772,6 +849,7 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
                       AmountDisplay(
                         amount: _amount,
                         rawInput: _rawInput,
+                        expression: _calculatorExpression,
                         onTapTables: () {
                           Navigator.push(context, MaterialPageRoute(builder: (context) => const TablesMapScreen()));
                         },
@@ -792,6 +870,7 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
                 flex: 5,
                 child: PosKeypad(
                   onKeyTap: _handleKeyTap,
+                  isScientificMode: _isScientificMode,
                 ),
               ),
             ],
