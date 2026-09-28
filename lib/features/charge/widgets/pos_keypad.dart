@@ -19,15 +19,15 @@ class PosKeypad extends StatelessWidget {
 
     final List<List<String>> standardKeys = isScientificMode
         ? [
-            ['1', '2', '3', 'BACKSPACE'],
-            ['4', '5', '6', 'CLEAR'],
             ['7', '8', '9', '×10'],
+            ['4', '5', '6', 'CLEAR'],
+            ['1', '2', '3', 'BACKSPACE'],
             ['.', '0', 'Ans', '='],
           ]
         : [
-            ['1', '2', '3', 'BACKSPACE'],
-            ['4', '5', '6', 'CLEAR'],
             ['7', '8', '9', '×10'],
+            ['4', '5', '6', 'CLEAR'],
+            ['1', '2', '3', 'BACKSPACE'],
             ['.', '0'],
           ];
 

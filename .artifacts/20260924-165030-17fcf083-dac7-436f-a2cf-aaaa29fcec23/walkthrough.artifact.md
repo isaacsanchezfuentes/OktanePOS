@@ -1,29 +1,23 @@
-# Walkthrough - Keypad Final Reorganization (00 Removed & Right Operators Matrix)
+# Walkthrough - Traditional Calculator Numeric Rows Inversion
 
-Se completó la **Reorganización Final del Teclado Numérico y Matriz Clásica de Operadores**.
+Se completó la **Inversión de Filas Numéricas en `pos_keypad.dart` (Estilo Calculadora Tradicional)**.
 
 ---
 
 ## Componentes Entregados
 
-### 1. Eliminación de `00` y Reubicación de `×10` en Teclado Principal (`pos_keypad.dart`)
+### 1. Reordenamiento Estilo Calculadora Física Tradicional (`pos_keypad.dart`)
 - [pos_keypad.dart](file:///C:/Users/PC/Shamanica/AndroidStudioProjects/oktane-pos/lib/features/charge/widgets/pos_keypad.dart):
-  - Eliminada la tecla `00`.
-  - La tecla `×10` se ubica en la Fila 3 en el lugar que ocupaba `00` (`['7', '8', '9', '×10']`).
-  - La Fila 4 en modo estándar contiene `['.', '0']` con `0` extendido, o `['.', '0', 'Ans', '=']` en modo científico.
-
-### 2. Panel Superior de Operadores Científicos (`pos_keypad.dart`)
-- [pos_keypad.dart](file:///C:/Users/PC/Shamanica/AndroidStudioProjects/oktane-pos/lib/features/charge/widgets/pos_keypad.dart):
-  - Panel superior compacto con operadores `['×', '÷', '+', '-']` cuando el Modo Calculadora está activado.
-  - Diseño 100% transparente (`color: Colors.transparent`), sin rellenos oscuros ni sobrecosto en la GPU Mali del Moto G04.
+  - Invertida la disposición de las filas numéricas de arriba a abajo (7-8-9 arriba, 4-5-6 centro, 1-2-3 abajo):
+    * **Fila 1 (arriba)**: `['7', '8', '9', '×10']`
+    * **Fila 2 (centro)**: `['4', '5', '6', 'CLEAR']`
+    * **Fila 3 (abajo)**: `['1', '2', '3', 'BACKSPACE']`
+    * **Fila 4 (renglón base)**: `['.', '0']` (o `['.', '0', 'Ans', '=']` en modo científico).
 
 ---
 
 ## Verification Summary
 
-### Análisis Estático (`flutter analyze`)
-- Resultado: **0 errores y 0 advertencias**.
-
 ### Pruebas Unitarias (`flutter test`)
 - Comando: `flutter test test/features/`
-- Resultado: **`00:26 +51: All tests passed!`** (100% de 51 pruebas aprobadas).
+- Resultado: **`00:19 +51: All tests passed!`** (100% de 51 pruebas aprobadas).

@@ -475,8 +475,21 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
     final currentUserId = _selectedWaiterId ?? (activeUser?.id ?? 'waiter-1');
     final currentWaiterName = _selectedWaiterName ?? (activeUser?.email?.split('@').first ?? 'Mesero');
 
-    final tableId = widget.tableId ?? 't-1';
-    final zoneId = widget.zoneId ?? 'zone-salon';
+    String tableId = widget.tableId ?? '00000000-0000-4000-8000-000000000020';
+    String zoneId = widget.zoneId ?? '11111111-1111-4000-8000-000000000001';
+
+    if (widget.tableId == null) {
+      for (final z in _tableService.getZones()) {
+        for (final t in _tableService.getTablesByZone(z.id)) {
+          final label = 'Mesa #${t.tableNumber} (${z.name})';
+          if (label == _selectedTableLabel || _selectedTableLabel.contains('Mesa #${t.tableNumber}')) {
+            tableId = t.id;
+            zoneId = z.id;
+            break;
+          }
+        }
+      }
+    }
 
     final conceptFinal = _conceptController.text.trim().isEmpty
         ? 'Ronda de Consumo'
