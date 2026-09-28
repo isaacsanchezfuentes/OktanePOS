@@ -246,6 +246,10 @@ class _CashCutScreenState extends State<CashCutScreen> {
 
                       // Secondary Metrics Card (Transactions, Ticket Promedio)
                       _buildSecondaryMetricsCard(_summary!),
+                      const SizedBox(height: 16),
+
+                      // Waiter Tips Breakdown Section
+                      buildWaiterTipsBreakdown(_summary!.waiterBreakdown),
                       const SizedBox(height: 20),
 
                       // Drawer Balancing Section
@@ -478,6 +482,83 @@ class _CashCutScreenState extends State<CashCutScreen> {
                 const SizedBox(height: 4),
                 Text(_formatCurrency(summary.averageTicket), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget buildWaiterTipsBreakdown(List<Map<String, dynamic>> cashCutData) {
+    if (cashCutData.isEmpty) {
+      return Card(
+        elevation: 1,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: const Padding(
+          padding: EdgeInsets.all(16.0),
+          child: Text('No hay registro de propinas por mesero en este corte.', style: TextStyle(color: Colors.grey)),
+        ),
+      );
+    }
+
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(14.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Row(
+              children: [
+                Icon(Icons.volunteer_activism_rounded, color: Color(0xFF2563EB), size: 22),
+                SizedBox(width: 8),
+                Text(
+                  'Desglose de Propinas por Mesero',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+            const Divider(),
+            ListView.separated(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: cashCutData.length,
+              separatorBuilder: (context, index) => const Divider(height: 1),
+              itemBuilder: (context, index) {
+                final waiter = cashCutData[index];
+                final waiterName = waiter['waiter_name']?.toString() ?? 'Sin Mesero';
+                final totalSales = (waiter['total_sales'] as num?)?.toDouble() ?? 0.0;
+                final cashTips = (waiter['cash_tips'] as num?)?.toDouble() ?? 0.0;
+                final cardTips = (waiter['card_tips'] as num?)?.toDouble() ?? 0.0;
+
+                return ListTile(
+                  dense: true,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                  title: Text(
+                    waiterName,
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                  ),
+                  subtitle: Text(
+                    'Ventas cobradas: \$${totalSales.toStringAsFixed(2)}',
+                    style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+                  ),
+                  trailing: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        'Efectivo: \$${cashTips.toStringAsFixed(2)}',
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.green),
+                      ),
+                      Text(
+                        'Tarjeta: \$${cardTips.toStringAsFixed(2)}',
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.blue),
+                      ),
+                    ],
+                  ),
+                );
+              },
             ),
           ],
         ),

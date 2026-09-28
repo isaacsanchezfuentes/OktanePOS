@@ -8,20 +8,29 @@ import '../../printer/services/thermal_printer_service.dart';
 
 class PaymentMethodBottomSheet extends StatefulWidget {
   final double amount;
+  final double tipAmount;
   final String concept;
+  final String? waiterId;
+  final String? waiterName;
   final ChargeService chargeService;
 
   const PaymentMethodBottomSheet({
     super.key,
     required this.amount,
+    this.tipAmount = 0.0,
     required this.concept,
+    this.waiterId,
+    this.waiterName,
     required this.chargeService,
   });
 
   static Future<ChargeModel?> show(
     BuildContext context, {
     required double amount,
+    double tipAmount = 0.0,
     required String concept,
+    String? waiterId,
+    String? waiterName,
     required ChargeService chargeService,
   }) {
     return showModalBottomSheet<ChargeModel>(
@@ -32,7 +41,10 @@ class PaymentMethodBottomSheet extends StatefulWidget {
       ),
       builder: (context) => PaymentMethodBottomSheet(
         amount: amount,
+        tipAmount: tipAmount,
         concept: concept,
+        waiterId: waiterId,
+        waiterName: waiterName,
         chargeService: chargeService,
       ),
     );
@@ -45,17 +57,25 @@ class PaymentMethodBottomSheet extends StatefulWidget {
 class _PaymentMethodBottomSheetState extends State<PaymentMethodBottomSheet> {
   String _selectedMethod = 'efectivo'; // 'efectivo', 'tarjeta', 'qr'
   final TextEditingController _cashReceivedController = TextEditingController();
+  final TextEditingController _tipController = TextEditingController();
   bool _isLoading = false;
 
   @override
   void initState() {
     super.initState();
-    _cashReceivedController.text = widget.amount.toStringAsFixed(2);
+    _tipController.text = widget.tipAmount > 0 ? widget.tipAmount.toStringAsFixed(2) : '0.00';
+    _updateCashReceivedDefault();
+  }
+
+  void _updateCashReceivedDefault() {
+    final tip = double.tryParse(_tipController.text) ?? 0.0;
+    _cashReceivedController.text = (widget.amount + tip).toStringAsFixed(2);
   }
 
   @override
   void dispose() {
     _cashReceivedController.dispose();
+    _tipController.dispose();
     super.dispose();
   }
 
@@ -63,12 +83,20 @@ class _PaymentMethodBottomSheetState extends State<PaymentMethodBottomSheet> {
     return NumberFormat.currency(locale: 'es_MX', symbol: '\$', decimalDigits: 2).format(val);
   }
 
+  double get _currentTip {
+    return double.tryParse(_tipController.text) ?? 0.0;
+  }
+
+  double get _totalWithTip {
+    return widget.amount + _currentTip;
+  }
+
   double get _cashReceived {
     return double.tryParse(_cashReceivedController.text) ?? 0.0;
   }
 
   double get _change {
-    final diff = _cashReceived - widget.amount;
+    final diff = _cashReceived - _totalWithTip;
     return diff > 0 ? diff : 0.0;
   }
 
@@ -81,12 +109,14 @@ class _PaymentMethodBottomSheetState extends State<PaymentMethodBottomSheet> {
 
       final charge = await widget.chargeService.createPendingCharge(
         amount: widget.amount,
+        tipAmount: _currentTip,
         userId: userId,
         concept: conceptFinal,
         paymentMethod: method,
+        waiterId: widget.waiterId,
+        waiterName: widget.waiterName,
       );
 
-      // Immediately set status to 'paid' on the same record without duplicating
       if (charge.id != null) {
         await widget.chargeService.updateChargeStatusAndMethod(
           charge.id!,
@@ -134,7 +164,6 @@ class _PaymentMethodBottomSheetState extends State<PaymentMethodBottomSheet> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Drag handle
           Center(
             child: Container(
               width: 40,
@@ -174,7 +203,7 @@ class _PaymentMethodBottomSheetState extends State<PaymentMethodBottomSheet> {
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Text(
-                  _formatCurrency(widget.amount),
+                  _formatCurrency(_totalWithTip),
                   style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.w800,
@@ -184,7 +213,68 @@ class _PaymentMethodBottomSheetState extends State<PaymentMethodBottomSheet> {
               ),
             ],
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 16),
+
+          // Campo de Propina Integrado con Chips Rápido
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TextField(
+                controller: _tipController,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: InputDecoration(
+                  labelText: 'Propina opcional',
+                  prefixText: '\$ ',
+                  suffixText: 'MXN',
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  isDense: true,
+                ),
+                onChanged: (val) {
+                  setState(() {
+                    _updateCashReceivedDefault();
+                  });
+                },
+              ),
+              const SizedBox(height: 8),
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    ActionChip(
+                      label: const Text('Sin propina'),
+                      onPressed: () {
+                        setState(() {
+                          _tipController.text = '0.00';
+                          _updateCashReceivedDefault();
+                        });
+                      },
+                    ),
+                    const SizedBox(width: 6),
+                    ActionChip(
+                      label: Text('10% (\$' + (widget.amount * 0.10).toStringAsFixed(2) + ')'),
+                      onPressed: () {
+                        setState(() {
+                          _tipController.text = (widget.amount * 0.10).toStringAsFixed(2);
+                          _updateCashReceivedDefault();
+                        });
+                      },
+                    ),
+                    const SizedBox(width: 6),
+                    ActionChip(
+                      label: Text('15% (\$' + (widget.amount * 0.15).toStringAsFixed(2) + ')'),
+                      onPressed: () {
+                        setState(() {
+                          _tipController.text = (widget.amount * 0.15).toStringAsFixed(2);
+                          _updateCashReceivedDefault();
+                        });
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
 
           // Payment Method Tabs
           Row(
@@ -220,7 +310,7 @@ class _PaymentMethodBottomSheetState extends State<PaymentMethodBottomSheet> {
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 12),
           decoration: BoxDecoration(
-            color: isSelected ? primaryColor.withOpacity(0.12) : Colors.grey[100],
+            color: isSelected ? primaryColor.withValues(alpha: 0.12) : Colors.grey[100],
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
               color: isSelected ? primaryColor : Colors.grey[300]!,
@@ -248,14 +338,15 @@ class _PaymentMethodBottomSheetState extends State<PaymentMethodBottomSheet> {
   }
 
   Widget _buildEfectivoContent() {
+    final totalPay = _totalWithTip;
     final cashOptions = [
-      widget.amount,
+      totalPay,
       20.0,
       50.0,
       100.0,
       200.0,
       500.0,
-    ].where((val) => val >= widget.amount || val == widget.amount).toSet().toList();
+    ].where((val) => val >= totalPay || val == totalPay).toSet().toList();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -379,7 +470,8 @@ class _PaymentMethodBottomSheetState extends State<PaymentMethodBottomSheet> {
   Widget _buildQrContent() {
     final tempId = DateTime.now().millisecondsSinceEpoch.toString();
     final folio = tempId.length >= 4 ? tempId.substring(tempId.length - 4) : tempId;
-    final qrData = 'https://oktane-pos.web.app/pay?id=$tempId&folio=$folio&amount=${widget.amount}';
+    final totalPay = _totalWithTip;
+    final qrData = 'https://oktane-pos.web.app/pay?id=$tempId&folio=$folio&amount=$totalPay';
 
     return Column(
       children: [
@@ -391,7 +483,7 @@ class _PaymentMethodBottomSheetState extends State<PaymentMethodBottomSheet> {
             border: Border.all(color: Colors.grey[300]!),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.05),
+                color: Colors.black.withValues(alpha: 0.05),
                 blurRadius: 10,
                 offset: const Offset(0, 4),
               ),

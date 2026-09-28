@@ -19,8 +19,10 @@ class ChargeService {
     required String userId,
     required String concept,
     required String paymentMethod,
+    double tipAmount = 0.0,
     String? tableId,
     String? waiterId,
+    String? waiterName,
     String currency = 'MXN',
   }) async {
     final String activeAuthUserId = _client.auth.currentUser?.id ?? userId;
@@ -37,6 +39,7 @@ class ChargeService {
 
     final newCharge = ChargeModel(
       amount: amount,
+      tipAmount: tipAmount,
       currency: currency,
       userId: activeAuthUserId,
       status: 'pending',
@@ -44,6 +47,7 @@ class ChargeService {
       paymentMethod: paymentMethod,
       tableId: validTableId,
       waiterId: validWaiterId,
+      waiterName: waiterName,
       createdAt: DateTime.now(),
     );
 
@@ -55,7 +59,7 @@ class ChargeService {
           .select()
           .single();
 
-      debugPrint('✅ Charge creado exitosamente con ID ${response['id']}');
+      debugPrint('✅ Charge creado exitosamente con ID ${response['id']} (propina: \$${tipAmount.toStringAsFixed(2)})');
       return ChargeModel.fromJson(response);
     } catch (e, stack) {
       debugPrint('❌ Error creando registro en tabla charges: $e\n$stack');

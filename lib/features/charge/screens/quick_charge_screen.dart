@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:oktane_pos/providers/auth_provider.dart';
 import '../services/charge_service.dart';
 import '../widgets/amount_display.dart';
 import '../widgets/pos_keypad.dart';
@@ -245,7 +243,7 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
       targetZone = zones.firstWhere((z) => z.id == 'zone-barra', orElse: () => zones.first);
       final barraTables = _tableService.getTablesByZone(targetZone.id);
       targetTable = barraTables.firstWhere(
-        (t) => t.status == 'occupied',
+            (t) => t.status == 'occupied',
         orElse: () => barraTables.firstWhere((t) => t.status == 'free', orElse: () => _tableService.getTablesByZone(zones.first.id).first),
       );
     } else {
@@ -443,23 +441,23 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
               onPressed: isOpening
                   ? null
                   : () async {
-                      if (!formKey.currentState!.validate()) return;
-                      setModalState(() => isOpening = true);
-                      final initialCash = double.tryParse(initialCashController.text.trim()) ?? 0.0;
-                      try {
-                        await _shiftService.openShift(userId: userId, initialCash: initialCash);
-                        if (context.mounted) {
-                          Navigator.pop(ctx, true);
-                        }
-                      } catch (e) {
-                        setModalState(() => isOpening = false);
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text('Error al abrir turno: $e'), backgroundColor: Colors.red),
-                          );
-                        }
-                      }
-                    },
+                if (!formKey.currentState!.validate()) return;
+                setModalState(() => isOpening = true);
+                final initialCash = double.tryParse(initialCashController.text.trim()) ?? 0.0;
+                try {
+                  await _shiftService.openShift(userId: userId, initialCash: initialCash);
+                  if (context.mounted) {
+                    Navigator.pop(ctx, true);
+                  }
+                } catch (e) {
+                  setModalState(() => isOpening = false);
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Error al abrir turno: $e'), backgroundColor: Colors.red),
+                    );
+                  }
+                }
+              },
               child: isOpening
                   ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
                   : const Text('INICIAR TURNO'),
@@ -541,8 +539,8 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
       if (!opened || !mounted) return;
     }
 
-    String conceptText = _conceptController.text.trim().isEmpty 
-        ? 'Consumo mostrador' 
+    String conceptText = _conceptController.text.trim().isEmpty
+        ? 'Consumo mostrador'
         : _conceptController.text.trim();
 
     if (_notesController.text.trim().isNotEmpty) {
@@ -555,10 +553,14 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
 
     if (!mounted) return;
 
+    final currentWaiterName = _selectedWaiterName ?? (Supabase.instance.client.auth.currentUser?.email?.split('@').first ?? 'Mesero');
+
     final resultCharge = await PaymentMethodBottomSheet.show(
       context,
       amount: _amount,
       concept: conceptText,
+      waiterId: userId,
+      waiterName: currentWaiterName,
       chargeService: _chargeService,
     );
 
@@ -566,8 +568,8 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
       final methodDisplay = resultCharge.paymentMethod == 'qr'
           ? 'Ticket QR impreso'
           : resultCharge.paymentMethod == 'tarjeta'
-              ? 'Pago con tarjeta registrado'
-              : 'Pago en efectivo registrado';
+          ? 'Pago con tarjeta registrado'
+          : 'Pago en efectivo registrado';
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -806,12 +808,12 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
   }
 
   Widget _buildPortraitLayout(
-    BuildContext context,
-    List<String> availableTables,
-    String activeUserName,
-    List<Map<String, String>> waitersList,
-    List<MenuItemModel> menuItems,
-  ) {
+      BuildContext context,
+      List<String> availableTables,
+      String activeUserName,
+      List<Map<String, String>> waitersList,
+      List<MenuItemModel> menuItems,
+      ) {
     return Column(
       children: [
         AmountDisplay(
@@ -829,32 +831,41 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
           },
         ),
         _buildSubStrip(ThemeService.instance),
-        _buildControlsCard(ThemeService.instance, availableTables, activeUserName, waitersList, menuItems),
-        Expanded(
-          child: PosKeypad(
-            onKeyTap: _handleKeyTap,
-            isScientificMode: _isScientificMode,
+        if (_pendingOrderItems.isNotEmpty)
+          Expanded(
+            child: SingleChildScrollView(
+              physics: const BouncingScrollPhysics(),
+              child: _buildControlsCard(ThemeService.instance, availableTables, activeUserName, waitersList, menuItems),
+            ),
+          )
+        else ...[
+          _buildControlsCard(ThemeService.instance, availableTables, activeUserName, waitersList, menuItems),
+          Expanded(
+            child: PosKeypad(
+              onKeyTap: _handleKeyTap,
+              isScientificMode: _isScientificMode,
+            ),
           ),
-        ),
+        ],
         _buildCobrarButton(ThemeService.instance),
       ],
     );
   }
 
   Widget _buildLandscapeLayout(
-    BuildContext context,
-    List<String> availableTables,
-    String activeUserName,
-    List<Map<String, String>> waitersList,
-    List<MenuItemModel> menuItems,
-  ) {
+      BuildContext context,
+      List<String> availableTables,
+      String activeUserName,
+      List<Map<String, String>> waitersList,
+      List<MenuItemModel> menuItems,
+      ) {
     return Column(
       children: [
         Expanded(
           child: Row(
             children: [
               Expanded(
-                flex: 6,
+                flex: _pendingOrderItems.isNotEmpty ? 12 : 6,
                 child: SingleChildScrollView(
                   physics: const BouncingScrollPhysics(),
                   child: Column(
@@ -879,13 +890,14 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
                   ),
                 ),
               ),
-              Expanded(
-                flex: 5,
-                child: PosKeypad(
-                  onKeyTap: _handleKeyTap,
-                  isScientificMode: _isScientificMode,
+              if (_pendingOrderItems.isEmpty)
+                Expanded(
+                  flex: 5,
+                  child: PosKeypad(
+                    onKeyTap: _handleKeyTap,
+                    isScientificMode: _isScientificMode,
+                  ),
                 ),
-              ),
             ],
           ),
         ),
@@ -917,18 +929,18 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
         child: ElevatedButton.icon(
           onPressed: _amount > 0
               ? () {
-                  if (_pendingOrderItems.isEmpty) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Para mandar a preparación selecciona al menos un platillo o bebida del menú.'),
-                        backgroundColor: Colors.orange,
-                        duration: Duration(seconds: 3),
-                      ),
-                    );
-                    return;
-                  }
-                  _sendOrderToKitchen();
-                }
+            if (_pendingOrderItems.isEmpty) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Para mandar a preparación selecciona al menos un platillo o bebida del menú.'),
+                  backgroundColor: Colors.orange,
+                  duration: Duration(seconds: 3),
+                ),
+              );
+              return;
+            }
+            _sendOrderToKitchen();
+          }
               : null,
           icon: const Icon(Icons.send_rounded, size: 18, color: Colors.white),
           label: const FittedBox(
@@ -949,12 +961,12 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
   }
 
   Widget _buildControlsCard(
-    ThemeService theme,
-    List<String> availableTables,
-    String activeUserName,
-    List<Map<String, String>> waitersList,
-    List<MenuItemModel> menuItems,
-  ) {
+      ThemeService theme,
+      List<String> availableTables,
+      String activeUserName,
+      List<Map<String, String>> waitersList,
+      List<MenuItemModel> menuItems,
+      ) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 2.0),
       child: Card(
@@ -1200,86 +1212,86 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
         ),
         child: isReadyToCharge
             ? TweenAnimationBuilder<double>(
-                tween: Tween<double>(begin: 0.35, end: 0.85),
-                duration: const Duration(milliseconds: 1000),
-                builder: (context, animatedGlow, child) {
-                  return Container(
-                    width: double.infinity,
-                    height: 52,
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [Color(0xFF8CE680), Color(0xFF5BCE50)],
-                      ),
-                      borderRadius: BorderRadius.circular(13),
-                      border: Border.all(color: const Color(0xFF2E8525), width: 1.5),
-                      boxShadow: [
-                        BoxShadow(
-                          color: const Color(0xFF4ADE80).withValues(alpha: animatedGlow),
-                          blurRadius: 10,
-                          spreadRadius: 2,
-                        ),
-                        const BoxShadow(color: Color(0x44000000), offset: Offset(0, 3), blurRadius: 3),
-                      ],
-                    ),
-                    child: child,
-                  );
-                },
-                child: ElevatedButton.icon(
-                  onPressed: _openPaymentModal,
-                  icon: const Icon(Icons.shopping_cart_checkout, size: 22, color: Color(0xFF092606)),
-                  label: FittedBox(
-                    child: Text(
-                      '🛒 ${tr('charge')} ${_formatAmount(_amount)}',
-                      style: const TextStyle(
-                        fontFamily: 'monospace',
-                        fontWeight: FontWeight.w900,
-                        fontSize: 16,
-                        letterSpacing: 1.2,
-                        color: Color(0xFF092606),
-                      ),
-                    ),
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.transparent,
-                    disabledBackgroundColor: Colors.transparent,
-                    shadowColor: Colors.transparent,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)),
-                  ),
+          tween: Tween<double>(begin: 0.35, end: 0.85),
+          duration: const Duration(milliseconds: 1000),
+          builder: (context, animatedGlow, child) {
+            return Container(
+              width: double.infinity,
+              height: 52,
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [Color(0xFF8CE680), Color(0xFF5BCE50)],
                 ),
-              )
-            : Container(
-                width: double.infinity,
-                height: 52,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF9CB49A),
-                  borderRadius: BorderRadius.circular(13),
-                  border: Border.all(color: const Color(0xFF6B8A69), width: 1.5),
-                ),
-                child: ElevatedButton.icon(
-                  onPressed: null,
-                  icon: const Icon(Icons.shopping_cart_checkout, size: 22, color: Color(0xFF2D3E2C)),
-                  label: FittedBox(
-                    child: Text(
-                      '${tr('charge')} ${_formatAmount(_amount)}',
-                      style: const TextStyle(
-                        fontFamily: 'monospace',
-                        fontWeight: FontWeight.w800,
-                        fontSize: 16,
-                        letterSpacing: 1.2,
-                        color: Color(0xFF2D3E2C),
-                      ),
-                    ),
+                borderRadius: BorderRadius.circular(13),
+                border: Border.all(color: const Color(0xFF2E8525), width: 1.5),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF4ADE80).withValues(alpha: animatedGlow),
+                    blurRadius: 10,
+                    spreadRadius: 2,
                   ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.transparent,
-                    disabledBackgroundColor: Colors.transparent,
-                    shadowColor: Colors.transparent,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)),
-                  ),
+                  const BoxShadow(color: Color(0x44000000), offset: Offset(0, 3), blurRadius: 3),
+                ],
+              ),
+              child: child,
+            );
+          },
+          child: ElevatedButton.icon(
+            onPressed: _openPaymentModal,
+            icon: const Icon(Icons.shopping_cart_checkout, size: 22, color: Color(0xFF092606)),
+            label: FittedBox(
+              child: Text(
+                '🛒 ${tr('charge')} ${_formatAmount(_amount)}',
+                style: const TextStyle(
+                  fontFamily: 'monospace',
+                  fontWeight: FontWeight.w900,
+                  fontSize: 16,
+                  letterSpacing: 1.2,
+                  color: Color(0xFF092606),
                 ),
               ),
+            ),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.transparent,
+              disabledBackgroundColor: Colors.transparent,
+              shadowColor: Colors.transparent,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)),
+            ),
+          ),
+        )
+            : Container(
+          width: double.infinity,
+          height: 52,
+          decoration: BoxDecoration(
+            color: const Color(0xFF9CB49A),
+            borderRadius: BorderRadius.circular(13),
+            border: Border.all(color: const Color(0xFF6B8A69), width: 1.5),
+          ),
+          child: ElevatedButton.icon(
+            onPressed: null,
+            icon: const Icon(Icons.shopping_cart_checkout, size: 22, color: Color(0xFF2D3E2C)),
+            label: FittedBox(
+              child: Text(
+                '${tr('charge')} ${_formatAmount(_amount)}',
+                style: const TextStyle(
+                  fontFamily: 'monospace',
+                  fontWeight: FontWeight.w800,
+                  fontSize: 16,
+                  letterSpacing: 1.2,
+                  color: Color(0xFF2D3E2C),
+                ),
+              ),
+            ),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.transparent,
+              disabledBackgroundColor: Colors.transparent,
+              shadowColor: Colors.transparent,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)),
+            ),
+          ),
+        ),
       ),
     );
   }
