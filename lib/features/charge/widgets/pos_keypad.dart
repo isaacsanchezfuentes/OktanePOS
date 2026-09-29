@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import '../../../core/theme/theme_service.dart';
 
 class PosKeypad extends StatelessWidget {
   final ValueChanged<String> onKeyTap;
@@ -13,126 +12,155 @@ class PosKeypad extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final List<List<String>> scientificOperators = [
-      ['×', '÷', '+', '-'],
-    ];
-
-    final List<List<String>> standardKeys = isScientificMode
-        ? [
-            ['7', '8', '9', '×10'],
-            ['4', '5', '6', 'CLEAR'],
-            ['1', '2', '3', 'BACKSPACE'],
-            ['.', '0', 'Ans', '='],
-          ]
-        : [
-            ['7', '8', '9', '×10'],
-            ['4', '5', '6', 'CLEAR'],
-            ['1', '2', '3', 'BACKSPACE'],
-            ['.', '0'],
-          ];
-
-    return ListenableBuilder(
-      listenable: ThemeService.instance,
-      builder: (context, _) {
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 6.0),
-          child: Column(
-            children: [
-              if (isScientificMode) ...[
-                ...scientificOperators.map((row) {
-                  return Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 2.0),
-                      child: Row(
-                        children: row.map((key) {
-                          return Expanded(
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 4.0),
-                              child: _buildKeyButton(context, key),
-                            ),
-                          );
-                        }).toList(),
-                      ),
-                    ),
-                  );
-                }),
-              ],
-              ...standardKeys.map((row) {
-                return Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 2.0),
-                    child: Row(
-                      children: row.map((key) {
-                        final isZeroKeyInLastRow = key == '0' && row.length == 2;
-                        return Expanded(
-                          flex: isZeroKeyInLastRow ? 3 : 1,
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 4.0),
-                            child: _buildKeyButton(context, key),
-                          ),
-                        );
-                      }).toList(),
+    if (isScientificMode) {
+      // Modo Calculadora Científica: ×10 arriba y + en columna derecha
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 2.0),
+        child: Column(
+          children: [
+            // Fila superior de operadores matemáticos
+            Expanded(
+              flex: 1,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(child: _buildKeyButton('×10', isOp: true)),
+                  Expanded(child: _buildKeyButton('-', isOp: true)),
+                  Expanded(child: _buildKeyButton('×', isOp: true)),
+                  Expanded(child: _buildKeyButton('÷', isOp: true)),
+                ],
+              ),
+            ),
+            // Bloque numérico principal con Ans y el botón + a la derecha
+            Expanded(
+              flex: 4,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(child: _buildColumn(['7', '4', '1', '.'])),
+                  Expanded(child: _buildColumn(['8', '5', '2', '0'])),
+                  Expanded(child: _buildColumn(['9', '6', '3', 'Ans'])),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Expanded(flex: 1, child: _buildKeyButton('⌫')),
+                        Expanded(flex: 1, child: _buildKeyButton('C')),
+                        Expanded(flex: 1, child: _buildKeyButton('+', isOp: true)),
+                        Expanded(flex: 1, child: _buildKeyButton('=', isEnter: true)),
+                      ],
                     ),
                   ),
-                );
-              }),
-            ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // Modo Numérico Estándar
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 2.0),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(child: _buildColumn(['7', '4', '1', '.'])),
+          Expanded(child: _buildColumn(['8', '5', '2', '0'])),
+          Expanded(child: _buildColumn(['9', '6', '3', '00'])),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(flex: 1, child: _buildKeyButton('⌫')),
+                Expanded(flex: 1, child: _buildKeyButton('C')),
+                Expanded(flex: 2, child: _buildKeyButton('↵', isEnter: true)),
+              ],
+            ),
           ),
-        );
-      },
+        ],
+      ),
     );
   }
 
-  Widget _buildKeyButton(BuildContext context, String key) {
-    final isClear = key == 'CLEAR' || key == 'CA';
-    final isBack = key == 'BACKSPACE' || key == 'DEL';
-    final isOp = key == '+' || key == '-' || key == '×' || key == '÷' || key == '=' || key == 'Ans' || key == '×10';
+  Widget _buildColumn(List<String> keys) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: keys.map((key) => Expanded(flex: 1, child: _buildKeyButton(key))).toList(),
+    );
+  }
 
-    final border = isClear
-        ? Border.all(color: const Color(0xFFDC2626), width: 1.4)
-        : isBack
-            ? Border.all(color: const Color(0xFFD97706), width: 1.3)
-            : isOp
-                ? Border.all(color: const Color(0xFF2563EB), width: 1.2)
-                : Border.all(color: const Color(0xFF64748B), width: 1.1);
+  Widget _buildKeyButton(String key, {bool isEnter = false, bool isOp = false}) {
+    final isClear = key == 'C';
+    final isBack = key == '⌫';
+
+    // Acabado de cristal transparente: deja ver el aluminio cepillado de fondo
+    final gradient = LinearGradient(
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+      colors: isEnter
+          ? [
+              const Color(0xFFB5C4AF).withOpacity(0.55), // Tinte verde salvia transparente
+              const Color(0xFF8DA387).withOpacity(0.20),
+              const Color(0xFF5E7358).withOpacity(0.35),
+            ]
+          : [
+              Colors.white.withOpacity(0.55), // Reflejo de luz superior izquierda
+              Colors.white.withOpacity(0.06), // Cuerpo transparente translúcido
+              Colors.black.withOpacity(0.22), // Sombra de bisel inferior derecha
+            ],
+      stops: const [0.0, 0.35, 1.0],
+    );
 
     final fontColor = isClear
         ? const Color(0xFFDC2626)
-        : isBack
-            ? const Color(0xFFD97706)
-            : isOp
-                ? const Color(0xFF1D4ED8)
-                : const Color(0xFF0F172A);
+        : (isEnter ? const Color(0xFF142412) : const Color(0xFF0F172A));
 
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: () => onKeyTap(key),
-        borderRadius: BorderRadius.circular(8),
-        splashColor: const Color(0x22000000),
+    return Padding(
+      padding: const EdgeInsets.all(2.5),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () {
+          if (key == '⌫') {
+            onKeyTap('BACKSPACE');
+          } else if (key == '↵') {
+            onKeyTap('=');
+          } else {
+            onKeyTap(key);
+          }
+        },
         child: Container(
-          alignment: Alignment.center,
           decoration: BoxDecoration(
-            color: Colors.transparent, // Cero relleno oscuro
-            borderRadius: BorderRadius.circular(8),
-            border: border,
-            boxShadow: const [
-              // Capa oscura: Sombra de caída que hunde la tecla en el chasis
-              BoxShadow(color: Color(0x40000000), offset: Offset(0, 2.5), blurRadius: 2.5),
-              // Capa clara: Reflejo de luz en la arista superior
-              BoxShadow(color: Color(0x80FFFFFF), offset: Offset(0, -1), blurRadius: 1),
+            gradient: gradient,
+            borderRadius: BorderRadius.circular(7),
+            border: Border.all(
+              color: isEnter
+                  ? const Color(0xFF5E7358).withOpacity(0.60)
+                  : Colors.black.withOpacity(0.28),
+              width: 1.0,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.20),
+                offset: const Offset(1.5, 2.0),
+                blurRadius: 2.5,
+              ),
             ],
           ),
-          child: isBack
-              ? Icon(Icons.backspace_outlined, color: fontColor, size: 22)
-              : Text(
-                  key == 'CLEAR' ? 'C' : key,
-                  style: TextStyle(
-                    color: fontColor,
-                    fontSize: isOp ? 22 : 25,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
+          child: Center(
+            child: isBack
+                ? Icon(Icons.backspace_outlined, color: fontColor, size: 22)
+                : isEnter && key == '↵'
+                    ? Icon(Icons.keyboard_return_rounded, color: fontColor, size: 26)
+                    : Text(
+                        key,
+                        style: TextStyle(
+                          color: fontColor,
+                          fontSize: isOp ? 21 : (isEnter ? 24 : 22),
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+          ),
         ),
       ),
     );

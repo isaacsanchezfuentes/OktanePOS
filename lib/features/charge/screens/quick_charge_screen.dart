@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -12,22 +13,21 @@ import '../../cash_cut/services/shift_service.dart';
 import '../../tables/theme/table_theme.dart';
 import 'package:oktane_pos/core/localization/app_locale.dart';
 import 'package:oktane_pos/core/theme/theme_service.dart';
-import 'package:oktane_pos/core/services/currency_service.dart';
 import '../../tables/screens/tables_map_screen.dart';
 import '../../tables/services/table_service.dart';
 import 'package:oktane_pos/features/tables/models/zone_model.dart';
 import 'package:oktane_pos/features/tables/models/table_model.dart';
+import 'package:oktane_pos/features/menu/models/menu_item_model.dart';
+import 'package:oktane_pos/features/menu/services/menu_service.dart';
+import 'package:oktane_pos/features/settings/screens/settings_screen.dart';
 import 'package:oktane_pos/features/tables/screens/table_order_detail_screen.dart';
-import '../../auth/services/rbac_service.dart';
-import '../../menu/models/menu_item_model.dart';
-import '../../menu/services/menu_service.dart';
-import '../../settings/screens/settings_screen.dart';
 
 class QuickChargeScreen extends StatefulWidget {
   final double? initialAmount;
   final String? initialConcept;
   final String? tableId;
   final String? zoneId;
+  final String? tableName;
   final TableService? tableService;
   final VoidCallback? onPaymentSuccess;
 
@@ -37,6 +37,7 @@ class QuickChargeScreen extends StatefulWidget {
     this.initialConcept,
     this.tableId,
     this.zoneId,
+    this.tableName,
     this.tableService,
     this.onPaymentSuccess,
   });
@@ -46,424 +47,423 @@ class QuickChargeScreen extends StatefulWidget {
 }
 
 class _QuickChargeScreenState extends State<QuickChargeScreen> {
-  final ChargeService _chargeService = ChargeService();
-  final ShiftService _shiftService = ShiftService();
-  final RbacService _rbacService = RbacService();
-  final MenuService _menuService = MenuService();
+  late final ChargeService _chargeService;
+  late final ShiftService _shiftService;
   late final TableService _tableService;
+  late final MenuService _menuService;
 
+  TextEditingController? _menuSearchController;
+
+  double _amount = 0.0;
+  String _rawInput = '0';
+  String _calculatorExpression = '';
+  double? _lastAnswer;
+  bool _isScientificMode = false;
   final TextEditingController _conceptController = TextEditingController();
   final TextEditingController _notesController = TextEditingController();
-  TextEditingController? _menuSearchController;
-  final List<Map<String, dynamic>> _pendingOrderItems = [];
 
-  String _rawInput = '0';
   String _selectedTableLabel = 'Barra / Mostrador';
-  String? _selectedWaiterName;
   String? _selectedWaiterId;
+  String? _selectedWaiterName;
+
+  final List<Map<String, dynamic>> _pendingOrderItems = [];
+  int? _lastModifiedIndex;
+  Timer? _highlightTimer;
+
+  // Filtro activo de categoría
+  String _selectedCategory = 'Todos';
+  final List<String> _categories = ['Todos', 'Bebidas', 'Alimentos', 'Postres', 'Otros'];
 
   @override
   void initState() {
     super.initState();
+    _chargeService = ChargeService();
+    _shiftService = ShiftService();
     _tableService = widget.tableService ?? TableService();
+    _menuService = MenuService();
 
     if (widget.initialAmount != null && widget.initialAmount! > 0) {
+      _amount = widget.initialAmount!;
       _rawInput = widget.initialAmount!.toStringAsFixed(2);
     }
     if (widget.initialConcept != null && widget.initialConcept!.isNotEmpty) {
       _conceptController.text = widget.initialConcept!;
     }
+    if (widget.tableName != null && widget.tableName!.isNotEmpty) {
+      _selectedTableLabel = widget.tableName!;
+    }
+  }
 
-    // Postpone background tasks until AFTER the first frame renders
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      CurrencyService.instance.updateRateInBackground();
+  void _triggerHighlight(int index) {
+    _highlightTimer?.cancel();
+    setState(() {
+      _lastModifiedIndex = index;
+    });
+    _highlightTimer = Timer(const Duration(milliseconds: 1400), () {
+      if (mounted) {
+        setState(() {
+          _lastModifiedIndex = null;
+        });
+      }
     });
   }
 
-  bool _isScientificMode = false;
-  String _calculatorExpression = '';
+  void _onProductQuickTapped(MenuItemModel item) {
+    final existingIdx = _pendingOrderItems.indexWhere((it) => it['id'] == item.id);
+    setState(() {
+      if (existingIdx >= 0) {
+        final currentQty = (_pendingOrderItems[existingIdx]['quantity'] as num).toInt();
+        final newQty = currentQty + 1;
+        _pendingOrderItems[existingIdx]['quantity'] = newQty;
+        _pendingOrderItems[existingIdx]['subtotal'] = item.price * newQty;
+        _triggerHighlight(existingIdx);
+      } else {
+        _pendingOrderItems.add({
+          'id': item.id,
+          'name': item.name,
+          'price': item.price,
+          'quantity': 1,
+          'is_takeaway': false,
+          'notes': '',
+          'subtotal': item.price,
+        });
+        _triggerHighlight(_pendingOrderItems.length - 1);
+      }
+      _recalculateTotalFromPendingItems();
+    });
+  }
 
-  double get _amount => double.tryParse(_rawInput) ?? 0.0;
+  void _removeLastInsertion() {
+    setState(() {
+      if (_pendingOrderItems.isNotEmpty) {
+        final lastIdx = _pendingOrderItems.length - 1;
+        final currentQty = (_pendingOrderItems[lastIdx]['quantity'] as num).toInt();
+        if (currentQty > 1) {
+          _pendingOrderItems[lastIdx]['quantity'] = currentQty - 1;
+          _pendingOrderItems[lastIdx]['subtotal'] =
+              (_pendingOrderItems[lastIdx]['price'] as num) * (currentQty - 1);
+          _triggerHighlight(lastIdx);
+        } else {
+          _pendingOrderItems.removeAt(lastIdx);
+          if (_pendingOrderItems.isNotEmpty) {
+            _triggerHighlight(_pendingOrderItems.length - 1);
+          }
+        }
+        _recalculateTotalFromPendingItems();
+      } else {
+        _handleKeyTap('BACKSPACE');
+      }
+    });
+  }
+
+  void _openScientificWithAns() {
+    setState(() {
+      _isScientificMode = true;
+      _lastAnswer = _amount;
+      _calculatorExpression = 'Ans (${_amount.toStringAsFixed(2)})';
+      _rawInput = '0';
+    });
+  }
+
+  void _resetKeypad() {
+    setState(() {
+      _amount = 0.0;
+      _rawInput = '0';
+      _calculatorExpression = '';
+      _conceptController.clear();
+      _notesController.clear();
+      _pendingOrderItems.clear();
+      _lastModifiedIndex = null;
+    });
+  }
 
   void _handleKeyTap(String key) {
     setState(() {
-      if (key == 'CLEAR' || key == 'CA') {
-        _rawInput = '0';
-        _calculatorExpression = '';
-        _pendingOrderItems.clear();
-        _conceptController.clear();
-      } else if (key == 'BACKSPACE' || key == 'DEL') {
+      if (key == 'CLEAR' || key == 'C' || key == 'CA') {
+        _resetKeypad();
+        return;
+      }
+
+      if (key == 'BACKSPACE' || key == '⌫' || key == 'DEL') {
         if (_rawInput.length > 1) {
           _rawInput = _rawInput.substring(0, _rawInput.length - 1);
         } else {
           _rawInput = '0';
         }
-        if (_calculatorExpression.isNotEmpty) {
-          _calculatorExpression = _calculatorExpression.substring(0, _calculatorExpression.length - 1);
-        }
-      } else if (key == '+' || key == '-' || key == '×' || key == '÷') {
-        _calculatorExpression = '$_rawInput $key ';
-        _rawInput = '0';
-      } else if (key == '=') {
-        if (_calculatorExpression.isNotEmpty) {
-          final parts = _calculatorExpression.trim().split(' ');
-          if (parts.length >= 2) {
-            final op1 = double.tryParse(parts[0]) ?? 0.0;
-            final operator = parts[1];
-            final op2 = double.tryParse(_rawInput) ?? 0.0;
-            double result = 0.0;
-            if (operator == '+') result = op1 + op2;
-            if (operator == '-') result = op1 - op2;
-            if (operator == '×') result = op1 * op2;
-            if (operator == '÷') result = op2 != 0 ? op1 / op2 : 0.0;
+        _amount = double.tryParse(_rawInput) ?? 0.0;
+        return;
+      }
 
-            _calculatorExpression = '$op1 $operator $op2 =';
-            _rawInput = result.toStringAsFixed(2);
-          }
+      if (key == '=') {
+        _calculateExpressionResult();
+        return;
+      }
+
+      if (key == 'Ans') {
+        if (_lastAnswer != null) {
+          _rawInput = _lastAnswer!.toStringAsFixed(2);
+          _amount = _lastAnswer!;
+          _calculatorExpression += ' Ans';
         }
-      } else if (key == 'Ans') {
+        return;
+      }
+
+      if (key == '×10') {
+        _amount = _amount * 10.0;
         _rawInput = _amount.toStringAsFixed(2);
-      } else if (key == '×10') {
-        final val = _amount * 10;
-        _rawInput = val.toStringAsFixed(2);
-      } else if (key == '.') {
-        if (!_rawInput.contains('.')) {
-          _rawInput = '$_rawInput.';
-        }
-      } else if (key == '00') {
-        if (_rawInput != '0') {
-          if (_rawInput.contains('.')) {
-            final parts = _rawInput.split('.');
-            if (parts[1].isEmpty) {
-              _rawInput = '${_rawInput}00';
-            } else if (parts[1].length == 1) {
-              _rawInput = '${_rawInput}0';
-            }
-          } else {
-            _rawInput = '${_rawInput}00';
-          }
-        }
-      } else {
-        // Digits 0-9
-        if (_rawInput == '0') {
-          _rawInput = key;
-        } else if (_rawInput.contains('.')) {
-          final parts = _rawInput.split('.');
-          if (parts[1].length < 2) {
-            _rawInput = '$_rawInput$key';
-          }
+        _calculatorExpression += ' ×10';
+        return;
+      }
+
+      if (key == '+' || key == '-' || key == '×' || key == '÷') {
+        if (_calculatorExpression.contains('Ans') && _rawInput == '0') {
+          _calculatorExpression = '$_calculatorExpression $key';
         } else {
-          _rawInput = '$_rawInput$key';
+          _calculatorExpression += ' ${_amount.toStringAsFixed(2)} $key';
+        }
+        _rawInput = '0';
+        _amount = 0.0;
+        return;
+      }
+
+      if (_rawInput == '0') {
+        if (key == '.') {
+          _rawInput = '0.';
+        } else {
+          _rawInput = key;
+        }
+      } else {
+        if (key == '.' && _rawInput.contains('.')) return;
+        if (_rawInput.contains('.') && _rawInput.split('.')[1].length >= 2) return;
+        _rawInput += key;
+      }
+
+      _amount = double.tryParse(_rawInput) ?? 0.0;
+    });
+  }
+
+  void _calculateExpressionResult() {
+    if (_calculatorExpression.isEmpty) return;
+
+    final fullExpr = '$_calculatorExpression ${_amount.toStringAsFixed(2)}';
+    String normalizedExpr = fullExpr;
+    if (_lastAnswer != null) {
+      normalizedExpr = normalizedExpr.replaceAll(
+        RegExp(r'Ans(\s*\([\d\.]+\))?'),
+        _lastAnswer!.toStringAsFixed(2),
+      );
+    }
+
+    final parts = normalizedExpr.trim().split(RegExp(r'\s+'));
+    if (parts.isEmpty) return;
+
+    double accumulator = double.tryParse(parts[0]) ?? 0.0;
+    String currentOp = '';
+
+    for (int i = 1; i < parts.length; i++) {
+      final token = parts[i];
+      if (token == '+' || token == '-' || token == '×' || token == '÷') {
+        currentOp = token;
+      } else {
+        final val = double.tryParse(token) ?? 0.0;
+        if (currentOp == '+') {
+          accumulator += val;
+        } else if (currentOp == '-') {
+          accumulator -= val;
+        } else if (currentOp == '×') {
+          accumulator *= val;
+        } else if (currentOp == '÷') {
+          if (val != 0) accumulator /= val;
         }
       }
-    });
-  }
-
-  void _recalculatePendingItemsTotal() {
-    double total = 0.0;
-    final List<String> concepts = [];
-    for (final item in _pendingOrderItems) {
-      final sub = (item['subtotal'] as num?)?.toDouble() ?? 0.0;
-      total += sub;
-      final name = item['name']?.toString() ?? 'Producto';
-      final qty = (item['quantity'] as num?)?.toInt() ?? 1;
-      final isTakeaway = item['is_takeaway'] == true;
-      final notes = item['notes']?.toString() ?? '';
-
-      final qtyPrefix = qty > 1 ? '${qty}x ' : '';
-      final takeawayTag = isTakeaway ? ' [Para llevar]' : '';
-      final notesTag = notes.isNotEmpty ? ' ($notes)' : '';
-      concepts.add('$qtyPrefix$name$takeawayTag$notesTag');
     }
 
-    setState(() {
-      _rawInput = total > 0 ? total.toStringAsFixed(2) : '0';
-      if (concepts.isNotEmpty) {
-        _conceptController.text = concepts.join(' + ');
-      } else {
-        _conceptController.clear();
-      }
-    });
-  }
-
-  Future<void> _editPendingItem(int index) async {
-    final item = _pendingOrderItems[index];
-    final menuItem = MenuItemModel(
-      id: item['item_id']?.toString() ?? 'm-temp',
-      name: item['name']?.toString() ?? 'Producto',
-      price: (item['price'] as num?)?.toDouble() ?? 0.0,
-    );
-    final updated = await ItemPreAddDialog.show(context, menuItem: menuItem);
-    if (updated != null && mounted) {
-      setState(() {
-        _pendingOrderItems[index] = updated;
-      });
-      _recalculatePendingItemsTotal();
-    }
+    _lastAnswer = accumulator;
+    _amount = accumulator;
+    _rawInput = accumulator.toStringAsFixed(2);
+    _calculatorExpression = '$fullExpr =';
   }
 
   void _removePendingItem(int index) {
     setState(() {
       _pendingOrderItems.removeAt(index);
+      _recalculateTotalFromPendingItems();
     });
-    _recalculatePendingItemsTotal();
   }
 
-  Future<void> _onMenuItemSelected(MenuItemModel item) async {
-    final resultItem = await ItemPreAddDialog.show(context, menuItem: item);
-    if (resultItem == null || !mounted) return;
-
-    final String itemName = resultItem['name']?.toString() ?? item.name;
-    final int itemQty = (resultItem['quantity'] as num?)?.toInt() ?? 1;
-    final double subtotal = (resultItem['subtotal'] as num?)?.toDouble() ?? 0.0;
-
-    setState(() {
-      _pendingOrderItems.add(resultItem);
-    });
-    _recalculatePendingItemsTotal();
-
-    // Auto-clear autocomplete search bar and unfocus keyboard
+  void _onMenuItemSelected(MenuItemModel selected) async {
     _menuSearchController?.clear();
-    FocusScope.of(context).unfocus();
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('➕ ${itemQty}x $itemName (+\$${subtotal.toStringAsFixed(2)}) agregado a la orden'),
-        duration: const Duration(seconds: 2),
-      ),
-    );
+    final result = await ItemPreAddDialog.show(context, menuItem: selected);
+
+    if (result != null) {
+      setState(() {
+        final qty = (result['quantity'] as num?)?.toInt() ?? 1;
+        final isTakeaway = result['is_takeaway'] == true;
+        final notes = result['notes']?.toString() ?? '';
+        final takeawayExtra = isTakeaway ? 5.0 : 0.0;
+        final subtotal = (selected.price + takeawayExtra) * qty;
+
+        final resultItem = {
+          'id': selected.id,
+          'name': selected.name,
+          'price': selected.price,
+          'quantity': qty,
+          'is_takeaway': isTakeaway,
+          'notes': notes,
+          'subtotal': subtotal,
+        };
+
+        _pendingOrderItems.add(resultItem);
+        _triggerHighlight(_pendingOrderItems.length - 1);
+        _recalculateTotalFromPendingItems();
+      });
+    }
   }
 
-  Future<void> _navigateToTableOrderDetail() async {
-    final zones = _tableService.getZones();
-    ZoneModel targetZone;
-    RestaurantTableModel targetTable;
+  void _recalculateTotalFromPendingItems() {
+    double sum = 0.0;
+    for (final item in _pendingOrderItems) {
+      sum += (item['subtotal'] as num?)?.toDouble() ?? 0.0;
+    }
+    _amount = sum;
+    _rawInput = sum.toStringAsFixed(2);
+  }
 
-    if (_selectedTableLabel == 'Barra / Mostrador') {
-      targetZone = zones.firstWhere((z) => z.id == 'zone-barra', orElse: () => zones.first);
-      final barraTables = _tableService.getTablesByZone(targetZone.id);
-      targetTable = barraTables.firstWhere(
-            (t) => t.status == 'occupied',
-        orElse: () => barraTables.firstWhere((t) => t.status == 'free', orElse: () => _tableService.getTablesByZone(zones.first.id).first),
-      );
-    } else {
-      final tableNum = int.tryParse(_selectedTableLabel.replaceAll(RegExp(r'[^0-9]'), '')) ?? 1;
-      targetZone = zones.first;
-      RestaurantTableModel? found;
-      for (final z in zones) {
-        final tables = _tableService.getTablesByZone(z.id);
-        for (final t in tables) {
-          if (t.tableNumber == tableNum) {
-            targetZone = z;
-            found = t;
-            break;
-          }
+  void _navigateToTableOrderDetail() async {
+    RestaurantTableModel? targetTable;
+    ZoneModel? targetZone;
+
+    for (final z in _tableService.getZones()) {
+      for (final t in _tableService.getTablesByZone(z.id)) {
+        final label = 'Mesa #${t.tableNumber} (${z.name})';
+        if (label == _selectedTableLabel) {
+          targetTable = t;
+          targetZone = z;
+          break;
         }
-        if (found != null) break;
       }
-      targetTable = found ?? _tableService.getTablesByZone(zones.first.id).first;
     }
 
-    if (_pendingOrderItems.isNotEmpty) {
-      _tableService.saveTableDraft(targetTable.id, _pendingOrderItems);
+    if (targetTable == null) {
+      targetTable = const RestaurantTableModel(
+        id: '00000000-0000-4000-8000-000000000020',
+        tableNumber: 20,
+        zoneId: '11111111-1111-4000-8000-000000000001',
+      );
+      targetZone = _tableService.getZones().first;
     }
 
-    await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => TableOrderDetailScreen(
-          zone: targetZone,
-          table: targetTable,
-          tableService: _tableService,
-          onTableUpdated: () {
-            if (mounted) setState(() {});
-          },
+    if (targetZone != null) {
+      if (_pendingOrderItems.isNotEmpty) {
+        _tableService.saveTableDraft(targetTable.id, _pendingOrderItems);
+      }
+
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => TableOrderDetailScreen(
+            table: targetTable!,
+            zone: targetZone!,
+            tableService: _tableService,
+          ),
         ),
-      ),
-    );
+      );
 
-    if (mounted) {
       final remainingDraft = _tableService.getTableDraft(targetTable.id);
-      if (remainingDraft.isEmpty) {
-        setState(() {
+      setState(() {
+        if (remainingDraft.isEmpty) {
           _pendingOrderItems.clear();
+          _amount = 0.0;
           _rawInput = '0';
-          _conceptController.clear();
-        });
-      } else {
-        setState(() {
+        } else {
           _pendingOrderItems.clear();
           _pendingOrderItems.addAll(remainingDraft);
-        });
-      }
+          _recalculateTotalFromPendingItems();
+        }
+      });
     }
   }
 
-  Future<void> _onWaiterChanged(String newName, String newId) async {
-    final activeUserId = Supabase.instance.client.auth.currentUser?.id ?? '';
-    final activeUserEmail = Supabase.instance.client.auth.currentUser?.email?.split('@').first ?? 'Mesero';
-
-    if (newId == (_selectedWaiterId ?? activeUserId)) {
-      setState(() {
-        _selectedWaiterName = newName;
-        _selectedWaiterId = newId;
-      });
-      return;
-    }
-
-    final pinCtrl = TextEditingController();
-    final formKey = GlobalKey<FormState>();
-
-    final bool? valid = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Row(
-          children: [
-            const Icon(Icons.person_pin, color: Colors.indigo),
-            const SizedBox(width: 8),
-            Flexible(child: Text('PIN de $newName', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold))),
-          ],
-        ),
-        content: Form(
-          key: formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('Ingrese el PIN para transferir la venta de $activeUserEmail a $newName.'),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: pinCtrl,
-                keyboardType: TextInputType.number,
-                obscureText: true,
-                maxLength: 4,
-                autofocus: true,
-                decoration: const InputDecoration(
-                  labelText: 'PIN de Mesero',
-                  border: OutlineInputBorder(),
-                ),
-                validator: (v) => (v == null || v.trim().length < 4) ? '4 dígitos requeridos' : null,
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
-          ElevatedButton(
-            onPressed: () async {
-              if (!formKey.currentState!.validate()) return;
-              final isValid = await _rbacService.verifyWaiterPin(pinCtrl.text.trim());
-              if (ctx.mounted) {
-                Navigator.pop(ctx, isValid);
-              }
-            },
-            child: const Text('Confirmar Transferencia'),
-          ),
-        ],
-      ),
-    );
-
-    if (valid == true && mounted) {
-      setState(() {
-        _selectedWaiterName = newName;
-        _selectedWaiterId = newId;
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('✅ Venta transferida a $newName'), backgroundColor: Colors.green[700]),
-      );
-    } else if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('❌ Transferencia cancelada: PIN incorrecto'), backgroundColor: Colors.red),
-      );
-    }
-  }
-
-  void _resetKeypad() {
+  void _onWaiterChanged(String name, String id) {
     setState(() {
-      _rawInput = '0';
-      _conceptController.clear();
-      _notesController.clear();
-      _pendingOrderItems.clear();
+      _selectedWaiterName = name;
+      _selectedWaiterId = id;
     });
   }
 
-  Future<bool> _showMandatoryOpenShiftDialog(BuildContext ctx, String userId) {
-    final initialCashController = TextEditingController(text: '500.00');
-    final formKey = GlobalKey<FormState>();
-    bool isOpening = false;
+  Future<bool> _showMandatoryOpenShiftDialog(BuildContext context, String userId) async {
+    final TextEditingController initialCashController = TextEditingController(text: '0.00');
 
-    return showDialog<bool>(
-      context: ctx,
+    return await showDialog<bool>(
+      context: context,
       barrierDismissible: false,
-      builder: (ctx) => StatefulBuilder(
-        builder: (context, setModalState) => AlertDialog(
-          title: const Row(
-            children: [
-              Icon(Icons.lock_open, color: Colors.indigo),
-              SizedBox(width: 8),
-              Text('Apertura de Turno', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            ],
-          ),
-          content: Form(
-            key: formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'No hay un turno de caja abierto. Inicie turno para comenzar a cobrar.',
-                  style: TextStyle(fontSize: 13, color: Colors.black87),
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: initialCashController,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  decoration: const InputDecoration(
-                    labelText: 'Fondo Inicial de Caja (Cambio)',
-                    prefixText: '\$ ',
-                    suffixText: 'MXN',
-                    border: OutlineInputBorder(),
-                  ),
-                  validator: (v) {
-                    if (v == null || v.trim().isEmpty) return 'Requerido';
-                    if (double.tryParse(v.trim()) == null) return 'Monto inválido';
-                    return null;
-                  },
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: isOpening ? null : () => Navigator.pop(ctx, false),
-              child: const Text('Cancelar'),
-            ),
-            ElevatedButton(
-              onPressed: isOpening
-                  ? null
-                  : () async {
-                if (!formKey.currentState!.validate()) return;
-                setModalState(() => isOpening = true);
-                final initialCash = double.tryParse(initialCashController.text.trim()) ?? 0.0;
-                try {
-                  await _shiftService.openShift(userId: userId, initialCash: initialCash);
-                  if (context.mounted) {
-                    Navigator.pop(ctx, true);
-                  }
-                } catch (e) {
-                  setModalState(() => isOpening = false);
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Error al abrir turno: $e'), backgroundColor: Colors.red),
-                    );
-                  }
-                }
-              },
-              child: isOpening
-                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                  : const Text('INICIAR TURNO'),
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1E293B),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.lock_clock, color: Colors.orange, size: 28),
+            SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Apertura de Turno Requerida',
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+              ),
             ),
           ],
         ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Para realizar cobros o comandas es obligatorio abrir un turno de caja.',
+              style: TextStyle(color: Color(0xFFCBD5E1), fontSize: 13),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: initialCashController,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+              decoration: const InputDecoration(
+                labelText: 'Fondo Inicial de Caja',
+                labelStyle: TextStyle(color: Color(0xFF94A3B8)),
+                prefixText: '\$ ',
+                prefixStyle: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: Color(0xFF475569))),
+                focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: Color(0xFF38BDF8))),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar', style: TextStyle(color: Color(0xFF94A3B8))),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF2563EB),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: () async {
+              final initialCash = double.tryParse(initialCashController.text) ?? 0.0;
+              try {
+                await _shiftService.openShift(userId: userId, initialCash: initialCash);
+                if (context.mounted) Navigator.pop(context, true);
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Error abriendo turno: $e'), backgroundColor: Colors.red),
+                  );
+                }
+              }
+            },
+            child: const Text('Abrir Turno', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ],
       ),
     ).then((val) => val == true);
   }
@@ -553,7 +553,8 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
 
     if (!mounted) return;
 
-    final currentWaiterName = _selectedWaiterName ?? (Supabase.instance.client.auth.currentUser?.email?.split('@').first ?? 'Mesero');
+    final currentWaiterName = _selectedWaiterName ??
+        (Supabase.instance.client.auth.currentUser?.email?.split('@').first ?? 'Mesero');
 
     final resultCharge = await PaymentMethodBottomSheet.show(
       context,
@@ -588,7 +589,6 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
         ),
       );
 
-      // Liberar mesa si fue originado de una mesa
       if (widget.tableId != null && widget.zoneId != null) {
         try {
           (widget.tableService ?? TableService()).clearAllTableTickets(widget.zoneId!, widget.tableId!);
@@ -598,13 +598,8 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
         }
       }
 
-      // Reset keypad back to $0.00 immediately
       _resetKeypad();
     }
-  }
-
-  String _formatAmount(double val) {
-    return NumberFormat.currency(locale: 'es_MX', symbol: '\$', decimalDigits: 2).format(val);
   }
 
   String _formatCurrency(double val) {
@@ -613,6 +608,7 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
 
   @override
   void dispose() {
+    _highlightTimer?.cancel();
     _conceptController.dispose();
     _notesController.dispose();
     super.dispose();
@@ -620,16 +616,16 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final menuItems = _menuService.getMenuItems(activeOnly: true);
+    final activeUserEmail = Supabase.instance.client.auth.currentUser?.email;
+    final activeUserName = activeUserEmail != null && activeUserEmail.contains('@')
+        ? activeUserEmail.split('@').first
+        : 'cliente001';
 
-    final activeUser = Supabase.instance.client.auth.currentUser;
-    final activeUserName = activeUser?.email?.split('@').first ?? 'Mesero Activo';
-
-    final waitersList = [
-      {'id': activeUser?.id ?? 'waiter-1', 'name': activeUserName},
+    final List<Map<String, String>> waitersList = [
+      {'id': 'waiter-1', 'name': activeUserName},
       {'id': 'waiter-2', 'name': 'Carlos (Mesero 1)'},
-      {'id': 'waiter-3', 'name': 'Ana (Mesero 2)'},
-      {'id': 'waiter-4', 'name': 'Sofía (Mesero 3)'},
+      {'id': 'waiter-3', 'name': 'Sofía (Mesero 2)'},
+      {'id': 'waiter-4', 'name': 'Ana (Mesero 3)'},
     ];
 
     final List<String> availableTables = ['Barra / Mostrador'];
@@ -642,10 +638,12 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
       _selectedTableLabel = availableTables.first;
     }
 
+    final List<MenuItemModel> menuItems = _menuService.getMenuItems(activeOnly: true);
+
     return Scaffold(
       extendBodyBehindAppBar: true,
       appBar: AppBar(
-        titleSpacing: 8,
+        titleSpacing: 16,
         flexibleSpace: Container(
           decoration: const BoxDecoration(
             gradient: LinearGradient(
@@ -658,7 +656,7 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
         backgroundColor: Colors.transparent,
         elevation: 0,
         title: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 135),
+          constraints: const BoxConstraints(maxWidth: 140),
           child: InkWell(
             onTap: () {
               setState(() {
@@ -682,13 +680,13 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(
-                      _isScientificMode ? Icons.bolt_rounded : Icons.calculate_outlined,
+                      _isScientificMode ? Icons.restaurant_menu_rounded : Icons.calculate_outlined,
                       size: 14,
                       color: _isScientificMode ? const Color(0xFF38BDF8) : const Color(0xFFF97316),
                     ),
                     const SizedBox(width: 4),
                     Text(
-                      _isScientificMode ? 'Cobro Rápido' : 'Calculadora',
+                      _isScientificMode ? 'Menú Táctil' : 'Calculadora',
                       style: const TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w800,
@@ -702,71 +700,74 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
           ),
         ),
         actions: [
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(
-                    Icons.local_fire_department_rounded,
-                    size: 20,
-                    color: Color(0xFFF97316),
-                  ),
-                  const SizedBox(width: 4),
-                  RichText(
-                    text: const TextSpan(
-                      children: [
-                        TextSpan(
-                          text: 'Oktane ',
-                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16),
-                        ),
-                        TextSpan(
-                          text: 'POS',
-                          style: TextStyle(color: Color(0xFF38BDF8), fontWeight: FontWeight.w900, fontSize: 16),
-                        ),
-                      ],
+          Padding(
+            padding: const EdgeInsets.only(right: 16.0),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.local_fire_department_rounded,
+                      size: 20,
+                      color: Color(0xFFF97316),
                     ),
-                  ),
-                ],
-              ),
-              const SizedBox(width: 12),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: ListenableBuilder(
-                  listenable: AppLocale.instance,
-                  builder: (context, _) {
-                    final isEs = AppLocale.instance.currentLang == 'es';
-                    return InkWell(
-                      onTap: () => AppLocale.instance.toggle(),
-                      borderRadius: BorderRadius.circular(6),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF1E293B),
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(color: const Color(0xFF475569), width: 0.8),
-                        ),
-                        child: Text(
-                          isEs ? '🇲🇽 ES' : '🇺🇸 EN',
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Color(0xFFE2E8F0)),
-                        ),
+                    const SizedBox(width: 4),
+                    RichText(
+                      text: const TextSpan(
+                        children: [
+                          TextSpan(
+                            text: 'Oktane ',
+                            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16),
+                          ),
+                          TextSpan(
+                            text: 'POS',
+                            style: TextStyle(color: Color(0xFF38BDF8), fontWeight: FontWeight.w900, fontSize: 16),
+                          ),
+                        ],
                       ),
-                    );
+                    ),
+                  ],
+                ),
+                const SizedBox(width: 12),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  child: ListenableBuilder(
+                    listenable: AppLocale.instance,
+                    builder: (context, _) {
+                      final isEs = AppLocale.instance.currentLang == 'es';
+                      return InkWell(
+                        onTap: () => AppLocale.instance.toggle(),
+                        borderRadius: BorderRadius.circular(6),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF1E293B),
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: const Color(0xFF475569), width: 0.8),
+                          ),
+                          child: Text(
+                            isEs ? '🇲🇽 ES' : '🇺🇸 EN',
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Color(0xFFE2E8F0)),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.settings_outlined, color: Color(0xFFE2E8F0)),
+                  tooltip: 'Ajustes',
+                  constraints: const BoxConstraints(),
+                  padding: const EdgeInsets.fromLTRB(4, 0, 0, 0),
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () {
+                    Navigator.push(context, MaterialPageRoute(builder: (context) => const SettingsScreen()));
                   },
                 ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.settings_outlined, color: Color(0xFFE2E8F0)),
-                tooltip: 'Ajustes',
-                constraints: const BoxConstraints(),
-                padding: const EdgeInsets.fromLTRB(4, 0, 12, 0),
-                visualDensity: VisualDensity.compact,
-                onPressed: () {
-                  Navigator.push(context, MaterialPageRoute(builder: (context) => const SettingsScreen()));
-                },
-              ),
-            ],
+              ],
+            ),
           ),
         ],
       ),
@@ -777,24 +778,23 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
 
           return Stack(
             children: [
-              // Base Layer: Pre-rendered Photorealistic 3D Faceplate Image (Radial Brushed Aluminium)
+              // Fondo de acero cepillado con centro elevado
               Positioned.fill(
-                child: Image.asset(
-                  'assets/images/faceplates/Gemini_Generated_Image_cpngq2cpngq2cpng.jpg',
-                  fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) {
-                    debugPrint('🔴 ERROR CARGANDO ASSET RADIAL: $error');
-                    return Container(
-                      color: Colors.red,
-                      child: Center(
-                        child: Text('Error: $error', style: const TextStyle(color: Colors.white)),
-                      ),
-                    );
-                  },
+                child: Transform.scale(
+                  scale: 1.15,
+                  child: Transform.translate(
+                    offset: const Offset(0, -50),
+                    child: Image.asset(
+                      'assets/images/faceplates/Gemini_Generated_Image_cpngq2cpngq2cpng.jpg',
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) {
+                        return Container(color: const Color(0xFF2D3033));
+                      },
+                    ),
+                  ),
                 ),
               ),
 
-              // Foreground Interactive Widgets Floating Exactly Over 3D Sockets
               SafeArea(
                 child: isLandscape
                     ? _buildLandscapeLayout(context, availableTables, activeUserName, waitersList, menuItems)
@@ -820,6 +820,9 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
           amount: _amount,
           rawInput: _rawInput,
           expression: _calculatorExpression,
+          orderItems: _pendingOrderItems,
+          lastModifiedIndex: _lastModifiedIndex,
+          onRemoveItem: _removePendingItem,
           onTapTables: () {
             Navigator.push(context, MaterialPageRoute(builder: (context) => const TablesMapScreen()));
           },
@@ -831,24 +834,633 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
           },
         ),
         _buildSubStrip(ThemeService.instance),
-        if (_pendingOrderItems.isNotEmpty)
-          Expanded(
-            child: SingleChildScrollView(
-              physics: const BouncingScrollPhysics(),
-              child: _buildControlsCard(ThemeService.instance, availableTables, activeUserName, waitersList, menuItems),
-            ),
+        _buildControlsCard(ThemeService.instance, availableTables, activeUserName, waitersList, menuItems),
+
+        Expanded(
+          child: _isScientificMode
+              ? PosKeypad(
+            onKeyTap: _handleKeyTap,
+            isScientificMode: true,
           )
-        else ...[
-          _buildControlsCard(ThemeService.instance, availableTables, activeUserName, waitersList, menuItems),
-          Expanded(
-            child: PosKeypad(
-              onKeyTap: _handleKeyTap,
-              isScientificMode: _isScientificMode,
-            ),
-          ),
-        ],
+              : _buildProductSection(menuItems),
+        ),
         _buildCobrarButton(ThemeService.instance),
       ],
+    );
+  }
+
+  Widget _buildControlsCard(
+      ThemeService theme,
+      List<String> availableTables,
+      String activeUserName,
+      List<Map<String, String>> waitersList,
+      List<MenuItemModel> menuItems,
+      ) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 3.0),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: DropdownButtonFormField<String>(
+                  initialValue: _selectedTableLabel,
+                  isExpanded: true,
+                  icon: const Icon(Icons.arrow_drop_down, color: Color(0xFF0F172A), size: 24),
+                  dropdownColor: const Color(0xFFF8FAFC),
+                  style: const TextStyle(
+                    color: Color(0xFF0F172A),
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w800,
+                  ),
+                  decoration: InputDecoration(
+                    labelText: 'Mesa / Ubicación',
+                    labelStyle: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w900,
+                      color: Color(0xFF0F172A),
+                    ),
+                    floatingLabelBehavior: FloatingLabelBehavior.always,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    filled: true,
+                    fillColor: Colors.white.withOpacity(0.08),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: const BorderSide(color: Color(0xFF0F172A), width: 1.3),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: const BorderSide(color: Color(0xFF0F172A), width: 1.3),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: const BorderSide(color: Color(0xFF0F172A), width: 1.6),
+                    ),
+                  ),
+                  items: availableTables.map((t) {
+                    return DropdownMenuItem(
+                      value: t,
+                      child: Text(t, overflow: TextOverflow.ellipsis),
+                    );
+                  }).toList(),
+                  onChanged: (val) {
+                    if (val != null) setState(() => _selectedTableLabel = val);
+                  },
+                ),
+              ),
+              const SizedBox(width: 8),
+
+              Expanded(
+                child: DropdownButtonFormField<String>(
+                  initialValue: _selectedWaiterName ?? activeUserName,
+                  isExpanded: true,
+                  icon: const Icon(Icons.arrow_drop_down, color: Color(0xFF0F172A), size: 24),
+                  dropdownColor: const Color(0xFFF8FAFC),
+                  style: const TextStyle(
+                    color: Color(0xFF0F172A),
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w800,
+                  ),
+                  decoration: InputDecoration(
+                    labelText: 'Mesero / Atención',
+                    labelStyle: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w900,
+                      color: Color(0xFF0F172A),
+                    ),
+                    floatingLabelBehavior: FloatingLabelBehavior.always,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    filled: true,
+                    fillColor: Colors.white.withOpacity(0.08),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: const BorderSide(color: Color(0xFF0F172A), width: 1.3),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: const BorderSide(color: Color(0xFF0F172A), width: 1.3),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: const BorderSide(color: Color(0xFF0F172A), width: 1.6),
+                    ),
+                  ),
+                  items: waitersList.map((w) {
+                    return DropdownMenuItem<String>(
+                      value: w['name'],
+                      child: Text(w['name']!, overflow: TextOverflow.ellipsis),
+                    );
+                  }).toList(),
+                  onChanged: (val) {
+                    if (val != null) {
+                      final selected = waitersList.firstWhere((w) => w['name'] == val);
+                      _onWaiterChanged(selected['name']!, selected['id']!);
+                    }
+                  },
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+
+          SizedBox(
+            width: double.infinity,
+            height: 38,
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Color(0xFF3B67B5),
+                    Color(0xFF2C5094),
+                    Color(0xFF213F7B),
+                  ],
+                ),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFF0F172A), width: 1.3),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color(0x33000000),
+                    offset: Offset(0, 2),
+                    blurRadius: 2,
+                  ),
+                ],
+              ),
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: _navigateToTableOrderDetail,
+                  borderRadius: BorderRadius.circular(10),
+                  child: const Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.assignment_outlined, size: 18, color: Colors.white),
+                      SizedBox(width: 8),
+                      Icon(Icons.delete_outline_rounded, size: 18, color: Colors.white),
+                      SizedBox(width: 10),
+                      FittedBox(
+                        child: Text(
+                          'TOMAR PEDIDO COMPLETO / VER MESA',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 0.6,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+
+          Autocomplete<MenuItemModel>(
+            optionsBuilder: (TextEditingValue textEditingValue) {
+              final query = textEditingValue.text.trim();
+              if (query.isEmpty) {
+                return const Iterable<MenuItemModel>.empty();
+              }
+              return menuItems.where((item) {
+                return item.name.toLowerCase().contains(query.toLowerCase());
+              });
+            },
+            displayStringForOption: (option) => option.name,
+            onSelected: (option) {
+              _onMenuItemSelected(option);
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                _menuSearchController?.clear();
+                FocusScope.of(context).unfocus();
+              });
+            },
+            optionsViewBuilder: (context, onSelected, options) {
+              final query = _menuSearchController?.text.trim() ?? '';
+              if (query.isEmpty || options.isEmpty) {
+                return const SizedBox.shrink();
+              }
+              return Align(
+                alignment: Alignment.topLeft,
+                child: Material(
+                  elevation: 8,
+                  borderRadius: BorderRadius.circular(10),
+                  color: Colors.white,
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxHeight: 180,
+                      maxWidth: MediaQuery.of(context).size.width - 28,
+                    ),
+                    child: ListView.builder(
+                      padding: EdgeInsets.zero,
+                      shrinkWrap: true,
+                      itemCount: options.length,
+                      itemBuilder: (context, index) {
+                        final option = options.elementAt(index);
+                        return ListTile(
+                          dense: true,
+                          visualDensity: VisualDensity.compact,
+                          title: Text(
+                            option.name,
+                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                          ),
+                          trailing: Text(
+                            '\$${option.price.toStringAsFixed(2)}',
+                            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: Color(0xFF2563EB)),
+                          ),
+                          onTap: () => onSelected(option),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              );
+            },
+            fieldViewBuilder: (context, controller, focusNode, onEditingComplete) {
+              _menuSearchController = controller;
+              return SizedBox(
+                height: 40,
+                child: TextField(
+                  controller: controller,
+                  focusNode: focusNode,
+                  style: const TextStyle(
+                    color: Color(0xFF0F172A),
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w700,
+                  ),
+                  decoration: InputDecoration(
+                    hintText: 'Buscar producto en menú (ej. Tacos, ...)',
+                    hintStyle: TextStyle(
+                      color: const Color(0xFF0F172A).withOpacity(0.65),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    prefixIcon: const Icon(
+                      Icons.search,
+                      size: 20,
+                      color: Color(0xFF334155),
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    filled: true,
+                    fillColor: Colors.white.withOpacity(0.12),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: const BorderSide(color: Color(0xFF0F172A), width: 1.3),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: const BorderSide(color: Color(0xFF0F172A), width: 1.3),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: const BorderSide(color: Color(0xFF0F172A), width: 1.6),
+                    ),
+                    suffixIcon: controller.text.isNotEmpty
+                        ? InkWell(
+                      onTap: () {
+                        controller.clear();
+                        FocusScope.of(context).unfocus();
+                        setState(() {});
+                      },
+                      child: const Icon(Icons.clear, size: 16, color: Colors.black54),
+                    )
+                        : null,
+                  ),
+                  onChanged: (_) => setState(() {}),
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  // SECCIÓN DE PRODUCTOS: ALINEACIÓN MILIMÉTRICA + TECLAS DERECHAS IDÉNTICAS A LA CALCULADORA
+  Widget _buildProductSection(List<MenuItemModel> menuItems) {
+    final filteredItems = _selectedCategory == 'Todos'
+        ? menuItems
+        : menuItems.where((m) {
+      final cat = m.category.toLowerCase();
+      final name = m.name.toLowerCase();
+      final sel = _selectedCategory.toLowerCase();
+      if (sel == 'bebidas') {
+        return cat.contains('beb') || name.contains('café') || name.contains('cerveza') || name.contains('refresco') || name.contains('agua');
+      } else if (sel == 'alimentos') {
+        return cat.contains('alim') || cat.contains('comid') || name.contains('taco') || name.contains('hamburguesa') || name.contains('pizza');
+      } else if (sel == 'postres') {
+        return cat.contains('postre') || name.contains('pastel') || name.contains('flan') || name.contains('helado') || name.contains('dulce');
+      } else if (sel == 'otros') {
+        final isKnown = name.contains('café') || name.contains('cerveza') || name.contains('refresco') || name.contains('taco') || name.contains('hamburguesa') || name.contains('pizza') || name.contains('pastel') || name.contains('flan');
+        return !isKnown && !cat.contains('beb') && !cat.contains('alim') && !cat.contains('postre');
+      }
+      return cat == sel;
+    }).toList();
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 1.0),
+      child: Column(
+        children: [
+          // 1. Cuadrícula y Teclas Laterales sincronizadas
+          Expanded(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  child: _buildProductGrid(filteredItems),
+                ),
+                const SizedBox(width: 5),
+
+                // Columna derecha con las 3 teclas con el MISMO ESTILO EXACTO de la calculadora
+                SizedBox(
+                  width: 52,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      // ⌫ Alineado exactamente con la Fila 1
+                      Expanded(
+                        child: _buildThinKeyButton(
+                          child: const Icon(
+                            Icons.backspace_outlined,
+                            size: 22,
+                            color: Color(0xFF0F172A),
+                          ),
+                          onTap: _removeLastInsertion,
+                        ),
+                      ),
+                      const SizedBox(height: 5),
+
+                      // C Alineado exactamente con la Fila 2
+                      Expanded(
+                        child: _buildThinKeyButton(
+                          child: const Text(
+                            'C',
+                            style: TextStyle(
+                              color: Color(0xFFDC2626),
+                              fontSize: 22,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          onTap: _resetKeypad,
+                        ),
+                      ),
+                      const SizedBox(height: 5),
+
+                      // ↵ Alineado exactamente con la Fila 3 (Verde salvia translúcido)
+                      Expanded(
+                        child: _buildThinKeyButton(
+                          isEnter: true,
+                          child: const Icon(
+                            Icons.keyboard_return_rounded,
+                            size: 26,
+                            color: Color(0xFF142412),
+                          ),
+                          onTap: _openScientificWithAns,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 6),
+
+          // 2. Barra de Categorías a ANCHO COMPLETO
+          _buildCategoryFilterBar(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCategoryFilterBar() {
+    return SizedBox(
+      height: 36,
+      child: Row(
+        children: _categories.map((cat) {
+          final isSelected = _selectedCategory == cat;
+          return Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 1.5),
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () {
+                  setState(() {
+                    _selectedCategory = cat;
+                  });
+                },
+                child: Container(
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    gradient: isSelected
+                        ? const LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [Color(0xFF2563EB), Color(0xFF1D4ED8)],
+                    )
+                        : const LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [Color(0xFFF1F5F9), Color(0xFFCBD5E1)],
+                    ),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(
+                      color: isSelected ? const Color(0xFF93C5FD) : const Color(0xFF8492A6),
+                      width: isSelected ? 1.2 : 0.8,
+                    ),
+                    boxShadow: const [
+                      BoxShadow(color: Color(0x33000000), offset: Offset(0, 1.5), blurRadius: 1.5),
+                    ],
+                  ),
+                  child: Text(
+                    cat,
+                    style: TextStyle(
+                      fontSize: 10.5,
+                      fontWeight: isSelected ? FontWeight.w900 : FontWeight.w700,
+                      color: isSelected ? Colors.white : const Color(0xFF1E293B),
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  // BOTÓN IDÉNTICO AL DISEÑO DE TECLAS DE LA CALCULADORA CIENTÍFICA
+  Widget _buildThinKeyButton({
+    required Widget child,
+    required VoidCallback onTap,
+    bool isEnter = false,
+  }) {
+    // Exactamente el mismo gradiente transparente biselado de pos_keypad.dart
+    final gradient = LinearGradient(
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+      colors: isEnter
+          ? [
+        const Color(0xFFB5C4AF).withOpacity(0.55), // Tinte verde salvia translúcido
+        const Color(0xFF8DA387).withOpacity(0.20),
+        const Color(0xFF5E7358).withOpacity(0.35),
+      ]
+          : [
+        Colors.white.withOpacity(0.55), // Reflejo de luz superior izquierda
+        Colors.white.withOpacity(0.06), // Cuerpo transparente translúcido
+        Colors.black.withOpacity(0.22), // Sombra de bisel inferior derecha
+      ],
+      stops: const [0.0, 0.35, 1.0],
+    );
+
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Container(
+        decoration: BoxDecoration(
+          gradient: gradient,
+          borderRadius: BorderRadius.circular(7),
+          border: Border.all(
+            color: isEnter
+                ? const Color(0xFF5E7358).withOpacity(0.60)
+                : Colors.black.withOpacity(0.28),
+            width: 1.0,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.20),
+              offset: const Offset(1.5, 2.0),
+              blurRadius: 2.5,
+            ),
+          ],
+        ),
+        child: Center(child: child),
+      ),
+    );
+  }
+
+  Widget _buildProductGrid(List<MenuItemModel> items) {
+    if (items.isEmpty) {
+      return Center(
+        child: Text(
+          tr('menu_empty'),
+          style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.bold, fontSize: 11),
+        ),
+      );
+    }
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const crossAxisCount = 3;
+        const spacing = 5.0;
+
+        final totalHeight = constraints.maxHeight;
+        final rowHeight = (totalHeight - (spacing * 2)) / 3;
+        final colWidth = (constraints.maxWidth - (spacing * 2)) / crossAxisCount;
+        final calculatedAspectRatio = colWidth / rowHeight;
+
+        return GridView.builder(
+          physics: const BouncingScrollPhysics(),
+          padding: EdgeInsets.zero,
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: crossAxisCount,
+            childAspectRatio: calculatedAspectRatio.clamp(0.5, 3.0),
+            crossAxisSpacing: spacing,
+            mainAxisSpacing: spacing,
+          ),
+          itemCount: items.length,
+          itemBuilder: (context, index) {
+            final item = items[index];
+            final existing = _pendingOrderItems.firstWhere(
+                  (it) => it['id'] == item.id,
+              orElse: () => {},
+            );
+            final currentQty = existing.isNotEmpty ? (existing['quantity'] as num).toInt() : 0;
+
+            return GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => _onProductQuickTapped(item),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 3),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: currentQty > 0
+                        ? const [Color(0xFFE2F0D9), Color(0xFFC4E0B2)]
+                        : const [Color(0xFFF8FAFC), Color(0xFFCBD5E1)],
+                  ),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: currentQty > 0 ? const Color(0xFF548235) : const Color(0xFF8492A6),
+                    width: currentQty > 0 ? 1.4 : 1.0,
+                  ),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Color(0x33000000),
+                      offset: Offset(0, 1.8),
+                      blurRadius: 1.5,
+                    ),
+                  ],
+                ),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        if (currentQty > 0)
+                          Container(
+                            margin: const EdgeInsets.only(right: 3),
+                            padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 1),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF2E7D32),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              '${currentQty}x',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 9,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ),
+                        Flexible(
+                          child: Text(
+                            item.name,
+                            style: TextStyle(
+                              color: currentQty > 0 ? const Color(0xFF1E391A) : const Color(0xFF0F172A),
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w800,
+                            ),
+                            maxLines: 2,
+                            textAlign: TextAlign.center,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '\$${item.price.toStringAsFixed(2)}',
+                      style: TextStyle(
+                        color: currentQty > 0 ? const Color(0xFF2E7D32) : const Color(0xFF1E40AF),
+                        fontSize: 9.5,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -865,7 +1477,7 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
           child: Row(
             children: [
               Expanded(
-                flex: _pendingOrderItems.isNotEmpty ? 12 : 6,
+                flex: 5,
                 child: SingleChildScrollView(
                   physics: const BouncingScrollPhysics(),
                   child: Column(
@@ -874,6 +1486,9 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
                         amount: _amount,
                         rawInput: _rawInput,
                         expression: _calculatorExpression,
+                        orderItems: _pendingOrderItems,
+                        lastModifiedIndex: _lastModifiedIndex,
+                        onRemoveItem: _removePendingItem,
                         onTapTables: () {
                           Navigator.push(context, MaterialPageRoute(builder: (context) => const TablesMapScreen()));
                         },
@@ -890,14 +1505,15 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
                   ),
                 ),
               ),
-              if (_pendingOrderItems.isEmpty)
-                Expanded(
-                  flex: 5,
-                  child: PosKeypad(
-                    onKeyTap: _handleKeyTap,
-                    isScientificMode: _isScientificMode,
-                  ),
-                ),
+              Expanded(
+                flex: 5,
+                child: _isScientificMode
+                    ? PosKeypad(
+                  onKeyTap: _handleKeyTap,
+                  isScientificMode: true,
+                )
+                    : _buildProductSection(menuItems),
+              ),
             ],
           ),
         ),
@@ -908,287 +1524,54 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
 
   Widget _buildSubStrip(ThemeService theme) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
-      child: Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 1.5),
+      child: SizedBox(
         width: double.infinity,
-        height: 44,
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Color(0xFFD97706), Color(0xFFC2410C), Color(0xFF9A3412)],
-            stops: [0.0, 0.5, 1.0],
-          ),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: const Color(0xFFFDBA74), width: 1.0),
-          boxShadow: const [
-            BoxShadow(color: Color(0x40000000), offset: Offset(0, 2.5), blurRadius: 3),
-            BoxShadow(color: Color(0x66FFFFFF), offset: Offset(0, -1), blurRadius: 1),
-          ],
-        ),
-        child: ElevatedButton.icon(
-          onPressed: _amount > 0
-              ? () {
-            if (_pendingOrderItems.isEmpty) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Para mandar a preparación selecciona al menos un platillo o bebida del menú.'),
-                  backgroundColor: Colors.orange,
-                  duration: Duration(seconds: 3),
-                ),
-              );
-              return;
-            }
-            _sendOrderToKitchen();
-          }
-              : null,
-          icon: const Icon(Icons.send_rounded, size: 18, color: Colors.white),
-          label: const FittedBox(
-            child: Text(
-              'MANDAR A PREPARACIÓN',
-              style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13, letterSpacing: 0.5, color: Colors.white),
+        height: 32,
+        child: Container(
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [Color(0xFFD97706), Color(0xFFC2410C), Color(0xFF9A3412)],
+              stops: [0.0, 0.5, 1.0],
             ),
-          ),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.transparent,
-            disabledBackgroundColor: Colors.transparent,
-            shadowColor: Colors.transparent,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildControlsCard(
-      ThemeService theme,
-      List<String> availableTables,
-      String activeUserName,
-      List<Map<String, String>> waitersList,
-      List<MenuItemModel> menuItems,
-      ) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 2.0),
-      child: Card(
-        elevation: 0,
-        color: Colors.transparent,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        child: Padding(
-          padding: const EdgeInsets.all(12.0),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: const Color(0x1AFFFFFF),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: const Color(0xFF64748B), width: 1.1),
-                        boxShadow: const [
-                          BoxShadow(color: Color(0x22000000), offset: Offset(0, 1.5), blurRadius: 1.5),
-                          BoxShadow(color: Color(0x66FFFFFF), offset: Offset(0, -1), blurRadius: 0.5),
-                        ],
-                      ),
-                      child: DropdownButtonFormField<String>(
-                        initialValue: _selectedTableLabel,
-                        isExpanded: true,
-                        dropdownColor: const Color(0xFFF8FAFC),
-                        iconEnabledColor: const Color(0xFF0F172A),
-                        style: const TextStyle(color: Color(0xFF0F172A), fontSize: 13, fontWeight: FontWeight.w800),
-                        decoration: InputDecoration(
-                          labelText: tr('table_location'),
-                          labelStyle: const TextStyle(color: Color(0xFF0F172A), fontSize: 11, fontWeight: FontWeight.bold),
-                          border: InputBorder.none,
-                          enabledBorder: InputBorder.none,
-                          focusedBorder: InputBorder.none,
-                          filled: false,
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                        ),
-                        items: availableTables.map((t) => DropdownMenuItem(value: t, child: Text(t, style: const TextStyle(color: Color(0xFF0F172A), fontSize: 13, fontWeight: FontWeight.w800)))).toList(),
-                        onChanged: (val) {
-                          if (val != null) setState(() => _selectedTableLabel = val);
-                        },
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: const Color(0x1AFFFFFF),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: const Color(0xFF64748B), width: 1.1),
-                        boxShadow: const [
-                          BoxShadow(color: Color(0x22000000), offset: Offset(0, 1.5), blurRadius: 1.5),
-                          BoxShadow(color: Color(0x66FFFFFF), offset: Offset(0, -1), blurRadius: 0.5),
-                        ],
-                      ),
-                      child: DropdownButtonFormField<String>(
-                        initialValue: _selectedWaiterName ?? activeUserName,
-                        isExpanded: true,
-                        dropdownColor: const Color(0xFFF8FAFC),
-                        iconEnabledColor: const Color(0xFF0F172A),
-                        style: const TextStyle(color: Color(0xFF0F172A), fontSize: 13, fontWeight: FontWeight.w800),
-                        decoration: InputDecoration(
-                          labelText: tr('waiter_service'),
-                          labelStyle: const TextStyle(color: Color(0xFF0F172A), fontSize: 11, fontWeight: FontWeight.bold),
-                          border: InputBorder.none,
-                          enabledBorder: InputBorder.none,
-                          focusedBorder: InputBorder.none,
-                          filled: false,
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                        ),
-                        items: waitersList.map((w) {
-                          return DropdownMenuItem<String>(
-                            value: w['name'],
-                            child: Text(w['name']!, style: const TextStyle(color: Color(0xFF0F172A), fontSize: 13, fontWeight: FontWeight.w800), overflow: TextOverflow.ellipsis),
-                          );
-                        }).toList(),
-                        onChanged: (val) {
-                          if (val != null) {
-                            final selected = waitersList.firstWhere((w) => w['name'] == val);
-                            _onWaiterChanged(selected['name']!, selected['id']!);
-                          }
-                        },
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 6),
-
-              SizedBox(
-                width: double.infinity,
-                height: 40,
-                child: Container(
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [Color(0xFF2563EB), Color(0xFF1D4ED8), Color(0xFF1E3A8A)],
-                      stops: [0.0, 0.5, 1.0],
-                    ),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: const Color(0xFF93C5FD), width: 1.0),
-                    boxShadow: const [
-                      BoxShadow(color: Color(0x40000000), offset: Offset(0, 2.5), blurRadius: 3),
-                      BoxShadow(color: Color(0x4DFFFFFF), offset: Offset(0, -1), blurRadius: 1),
-                    ],
-                  ),
-                  child: ElevatedButton.icon(
-                    onPressed: _navigateToTableOrderDetail,
-                    icon: const Icon(Icons.assignment_outlined, size: 18, color: Colors.white),
-                    label: Text(
-                      '📋 ${tr('view_table')}',
-                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Colors.white),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.transparent,
-                      disabledBackgroundColor: Colors.transparent,
-                      shadowColor: Colors.transparent,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 6),
-
-              Autocomplete<MenuItemModel>(
-                optionsBuilder: (TextEditingValue textEditingValue) {
-                  if (textEditingValue.text.isEmpty) {
-                    return const Iterable<MenuItemModel>.empty();
-                  }
-                  return menuItems.where((item) {
-                    return item.name.toLowerCase().contains(textEditingValue.text.toLowerCase());
-                  });
-                },
-                displayStringForOption: (option) => option.name,
-                onSelected: _onMenuItemSelected,
-                fieldViewBuilder: (context, controller, focusNode, onEditingComplete) {
-                  _menuSearchController = controller;
-                  return TextField(
-                    controller: controller,
-                    focusNode: focusNode,
-                    style: const TextStyle(color: TableTheme.textPrimary, fontSize: 13),
-                    decoration: InputDecoration(
-                      hintText: '🔍 ${tr('search_menu')}',
-                      hintStyle: const TextStyle(color: TableTheme.textMuted, fontSize: 12),
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                      enabledBorder: const OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(8)), borderSide: BorderSide(color: TableTheme.borderStrong)),
-                      focusedBorder: OutlineInputBorder(borderRadius: const BorderRadius.all(Radius.circular(8)), borderSide: BorderSide(color: theme.accentAction, width: 1.5)),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                      filled: true,
-                      fillColor: const Color(0xFFF1F5F9),
-                    ),
-                  );
-                },
-              ),
-
-              if (_pendingOrderItems.isNotEmpty) ...[
-                const SizedBox(height: 6),
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxHeight: 140),
-                  child: SingleChildScrollView(
-                    physics: const BouncingScrollPhysics(),
-                    child: Column(
-                      children: _pendingOrderItems.asMap().entries.map((entry) {
-                        final index = entry.key;
-                        final item = entry.value;
-                        final name = item['name']?.toString() ?? 'Producto';
-                        final price = (item['price'] as num?)?.toDouble() ?? 0.0;
-                        final qty = (item['quantity'] as num?)?.toInt() ?? 1;
-                        final subtotal = (item['subtotal'] as num?)?.toDouble() ?? 0.0;
-                        final isTakeaway = item['is_takeaway'] == true;
-                        final notes = item['notes']?.toString() ?? '';
-
-                        return Card(
-                          margin: const EdgeInsets.only(top: 4),
-                          elevation: 2,
-                          color: const Color(0xFFF8FAFC),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
-                            side: const BorderSide(color: Color(0xFFCBD5E1)),
-                          ),
-                          child: ListTile(
-                            dense: true,
-                            onTap: () => _editPendingItem(index),
-                            leading: const Icon(Icons.edit_note, color: Color(0xFF2563EB), size: 22),
-                            title: Text('${qty}x $name', style: const TextStyle(color: Color(0xFF0F172A), fontWeight: FontWeight.bold, fontSize: 13)),
-                            subtitle: Wrap(
-                              spacing: 4,
-                              runSpacing: 2,
-                              children: [
-                                Text('\$$price c/u', style: const TextStyle(color: Color(0xFF475569), fontSize: 11, fontWeight: FontWeight.w600)),
-                                if (notes.isNotEmpty) Text('• $notes', style: const TextStyle(color: Color(0xFF475569), fontSize: 10)),
-                                if (isTakeaway)
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                                    decoration: BoxDecoration(color: Colors.deepOrange[100], borderRadius: BorderRadius.circular(4)),
-                                    child: const Text('Para llevar (+\$5)', style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.deepOrange)),
-                                  ),
-                              ],
-                            ),
-                            trailing: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(_formatCurrency(subtotal), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF2563EB))),
-                                const SizedBox(width: 4),
-                                IconButton(
-                                  icon: const Icon(Icons.clear, size: 18, color: Color(0xFFDC2626)),
-                                  onPressed: () => _removePendingItem(index),
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
-                      }).toList(),
-                    ),
-                  ),
-                ),
-              ],
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: const Color(0xFFFDBA74), width: 0.8),
+            boxShadow: const [
+              BoxShadow(color: Color(0x33000000), offset: Offset(0, 1.5), blurRadius: 2),
             ],
+          ),
+          child: ElevatedButton.icon(
+            onPressed: _amount > 0
+                ? () {
+              if (_pendingOrderItems.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Selecciona al menos un platillo o bebida del menú.'),
+                    backgroundColor: Colors.orange,
+                    duration: Duration(seconds: 2),
+                  ),
+                );
+                return;
+              }
+              _sendOrderToKitchen();
+            }
+                : null,
+            icon: const Icon(Icons.send_rounded, size: 14, color: Colors.white),
+            label: const FittedBox(
+              child: Text(
+                'MANDAR A PREPARACIÓN',
+                style: TextStyle(fontWeight: FontWeight.w900, fontSize: 11, letterSpacing: 0.5, color: Colors.white),
+              ),
+            ),
+            style: ElevatedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              backgroundColor: Colors.transparent,
+              disabledBackgroundColor: Colors.transparent,
+              shadowColor: Colors.transparent,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+            ),
           ),
         ),
       ),
@@ -1199,7 +1582,7 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
     final bool isReadyToCharge = _amount > 0;
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+      padding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 4.0),
       child: Container(
         padding: const EdgeInsets.all(3.0),
         decoration: BoxDecoration(
@@ -1217,70 +1600,84 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
           builder: (context, animatedGlow, child) {
             return Container(
               width: double.infinity,
-              height: 52,
+              height: 48,
               decoration: BoxDecoration(
                 gradient: const LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
-                  colors: [Color(0xFF8CE680), Color(0xFF5BCE50)],
+                  colors: [
+                    Color(0xFF8CE680),
+                    Color(0xFF5BCE50),
+                  ],
                 ),
                 borderRadius: BorderRadius.circular(13),
-                border: Border.all(color: const Color(0xFF2E8525), width: 1.5),
+                border: Border.all(
+                  color: const Color(0xFF388E3C),
+                  width: 1.5,
+                ),
                 boxShadow: [
                   BoxShadow(
-                    color: const Color(0xFF4ADE80).withValues(alpha: animatedGlow),
-                    blurRadius: 10,
-                    spreadRadius: 2,
+                    color: const Color(0xFF5BCE50).withOpacity(animatedGlow),
+                    blurRadius: 12 * animatedGlow,
+                    spreadRadius: 2 * animatedGlow,
                   ),
-                  const BoxShadow(color: Color(0x44000000), offset: Offset(0, 3), blurRadius: 3),
                 ],
               ),
-              child: child,
-            );
-          },
-          child: ElevatedButton.icon(
-            onPressed: _openPaymentModal,
-            icon: const Icon(Icons.shopping_cart_checkout, size: 22, color: Color(0xFF092606)),
-            label: FittedBox(
-              child: Text(
-                '🛒 ${tr('charge')} ${_formatAmount(_amount)}',
-                style: const TextStyle(
-                  fontFamily: 'monospace',
-                  fontWeight: FontWeight.w900,
-                  fontSize: 16,
-                  letterSpacing: 1.2,
-                  color: Color(0xFF092606),
+              child: ElevatedButton.icon(
+                onPressed: _openPaymentModal,
+                icon: const Icon(Icons.shopping_cart_checkout_rounded, size: 20, color: Color(0xFF092606)),
+                label: FittedBox(
+                  child: Text(
+                    'COBRAR ${_formatCurrency(_amount)}',
+                    style: const TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 17,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 1.2,
+                      color: Color(0xFF092606),
+                    ),
+                  ),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.transparent,
+                  disabledBackgroundColor: Colors.transparent,
+                  shadowColor: Colors.transparent,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)),
                 ),
               ),
-            ),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.transparent,
-              disabledBackgroundColor: Colors.transparent,
-              shadowColor: Colors.transparent,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)),
-            ),
-          ),
+            );
+          },
         )
             : Container(
           width: double.infinity,
-          height: 52,
+          height: 48,
           decoration: BoxDecoration(
-            color: const Color(0xFF9CB49A),
+            gradient: const LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Color(0xFF4A5647),
+                Color(0xFF3B4438),
+              ],
+            ),
             borderRadius: BorderRadius.circular(13),
-            border: Border.all(color: const Color(0xFF6B8A69), width: 1.5),
+            border: Border.all(
+              color: const Color(0xFF2A3328),
+              width: 1.5,
+            ),
           ),
           child: ElevatedButton.icon(
             onPressed: null,
-            icon: const Icon(Icons.shopping_cart_checkout, size: 22, color: Color(0xFF2D3E2C)),
+            icon: const Icon(Icons.shopping_cart_checkout_rounded, size: 20, color: Color(0x66152013)),
             label: FittedBox(
               child: Text(
-                '${tr('charge')} ${_formatAmount(_amount)}',
+                'COBRAR \$0.00',
                 style: const TextStyle(
                   fontFamily: 'monospace',
-                  fontWeight: FontWeight.w800,
-                  fontSize: 16,
+                  fontSize: 17,
+                  fontWeight: FontWeight.w900,
                   letterSpacing: 1.2,
-                  color: Color(0xFF2D3E2C),
+                  color: Color(0x66152013),
                 ),
               ),
             ),

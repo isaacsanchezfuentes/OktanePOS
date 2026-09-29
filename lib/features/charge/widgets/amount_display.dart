@@ -4,269 +4,461 @@ import '../../../core/localization/app_locale.dart';
 import '../../../core/theme/theme_service.dart';
 import '../../../core/services/currency_service.dart';
 
+/// Paletas de color para la pantalla LCD
+enum LcdTheme {
+  paleMint,      // Verde menta / salvia claro retro
+  classicOlive,  // Verde oliva militar original
+  amberGold,     // Ámbar vintage
+}
+
+/// Tipografías digitales disponibles para el monto
+enum LcdTypography {
+  segmentMatrix, // Estilo 1: Matriz segmentada / bloques con cero cortado
+  modernItalic,  // Estilo 2: Itálica gruesa azul profundo con ghost inclinado
+  classicMono,   // Monospace estándar
+}
+
 class AmountDisplay extends StatelessWidget {
   final double amount;
   final String rawInput;
   final String? expression;
+  final List<Map<String, dynamic>>? orderItems;
+  final int? lastModifiedIndex;
+  final Function(int)? onRemoveItem;
   final VoidCallback? onTapTables;
   final VoidCallback? onTapPrinter;
   final VoidCallback? onTapHistory;
+  final LcdTheme? themeOverride;
+  final LcdTypography? typographyOverride;
+
+  /// Notificador global de color LCD
+  static final ValueNotifier<LcdTheme> themeNotifier =
+      ValueNotifier<LcdTheme>(LcdTheme.paleMint);
+
+  /// Notificador global de tipografía LCD
+  static final ValueNotifier<LcdTypography> typographyNotifier =
+      ValueNotifier<LcdTypography>(LcdTypography.segmentMatrix);
 
   const AmountDisplay({
     super.key,
     required this.amount,
     required this.rawInput,
     this.expression,
+    this.orderItems,
+    this.lastModifiedIndex,
+    this.onRemoveItem,
     this.onTapTables,
     this.onTapPrinter,
     this.onTapHistory,
+    this.themeOverride,
+    this.typographyOverride,
   });
 
+  /// Alterna cíclicamente entre los colores disponibles (Verde Menta, Oliva, Ámbar)
+  static void cycleTheme() {
+    switch (themeNotifier.value) {
+      case LcdTheme.paleMint:
+        themeNotifier.value = LcdTheme.classicOlive;
+        break;
+      case LcdTheme.classicOlive:
+        themeNotifier.value = LcdTheme.amberGold;
+        break;
+      case LcdTheme.amberGold:
+        themeNotifier.value = LcdTheme.paleMint;
+        break;
+    }
+  }
+
+  /// Alterna cíclicamente entre los estilos tipográficos
+  static void cycleTypography() {
+    switch (typographyNotifier.value) {
+      case LcdTypography.segmentMatrix:
+        typographyNotifier.value = LcdTypography.modernItalic;
+        break;
+      case LcdTypography.modernItalic:
+        typographyNotifier.value = LcdTypography.classicMono;
+        break;
+      case LcdTypography.classicMono:
+        typographyNotifier.value = LcdTypography.segmentMatrix;
+        break;
+    }
+  }
+
   String _formatMxn(double val) {
-    return NumberFormat.currency(
-      locale: 'es_MX',
-      symbol: '\$',
-      decimalDigits: 2,
-    ).format(val);
+    return NumberFormat.currency(locale: 'es_MX', symbol: '\$', decimalDigits: 2).format(val);
   }
 
   String _formatUsd(double val) {
-    return NumberFormat.currency(
-      locale: 'en_US',
-      symbol: '\$',
-      decimalDigits: 2,
-    ).format(val);
+    return NumberFormat.currency(locale: 'en_US', symbol: '\$', decimalDigits: 2).format(val);
   }
 
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: Listenable.merge([AppLocale.instance, ThemeService.instance, CurrencyService.instance]),
+      listenable: Listenable.merge([
+        AppLocale.instance,
+        ThemeService.instance,
+        CurrencyService.instance,
+        themeNotifier,
+        typographyNotifier,
+      ]),
       builder: (context, _) {
         final currency = CurrencyService.instance;
-        const displayBgStart = Color(0xFFC4D8C2);
-        const displayBgEnd = Color(0xFFB2CAB0);
-        const displayText = Color(0xFF152013); // Tinta LCD oscura sólida
+        final currentTheme = themeOverride ?? themeNotifier.value;
+        final currentTypo = typographyOverride ?? typographyNotifier.value;
+
+        // 1. Colores de pantalla por tema
+        late final Color displayBgStart;
+        late final Color displayBgEnd;
+        late final Color defaultTextColor;
+        late final Color borderColor;
+
+        switch (currentTheme) {
+          case LcdTheme.paleMint:
+            displayBgStart = const Color(0xFFBACBB2);
+            displayBgEnd = const Color(0xFFA5B99D);
+            defaultTextColor = const Color(0xFF121E12);
+            borderColor = const Color(0xFF41533C);
+            break;
+          case LcdTheme.classicOlive:
+            displayBgStart = const Color(0xFF90A389);
+            displayBgEnd = const Color(0xFF7A8D73);
+            defaultTextColor = const Color(0xFF0C143B);
+            borderColor = const Color(0xFF3A4A35);
+            break;
+          case LcdTheme.amberGold:
+            displayBgStart = const Color(0xFFE2B056);
+            displayBgEnd = const Color(0xFFC79336);
+            defaultTextColor = const Color(0xFF261604);
+            borderColor = const Color(0xFF6B480C);
+            break;
+        }
+
+        // 2. Configuración tipográfica exacta según el modo seleccionado
+        late final TextStyle mainAmountStyle;
+        late final TextStyle ghostAmountStyle;
+
+        switch (currentTypo) {
+          case LcdTypography.segmentMatrix:
+            // Estilo 1 (Arriba): Bloques monoespaciados, negro carbón con cero cortado
+            mainAmountStyle = TextStyle(
+              fontFamily: 'Courier',
+              fontFamilyFallback: const ['monospace'],
+              fontSize: 48,
+              fontWeight: FontWeight.w900,
+              fontStyle: FontStyle.normal,
+              color: const Color(0xFF0A120A),
+              letterSpacing: 2.2,
+              fontFeatures: const [
+                FontFeature.slashedZero(),
+                FontFeature.tabularFigures(),
+              ],
+            );
+            ghostAmountStyle = TextStyle(
+              fontFamily: 'Courier',
+              fontFamilyFallback: const ['monospace'],
+              fontSize: 48,
+              fontWeight: FontWeight.w900,
+              fontStyle: FontStyle.normal,
+              color: defaultTextColor.withOpacity(0.08),
+              letterSpacing: 2.2,
+            );
+            break;
+
+          case LcdTypography.modernItalic:
+            // Estilo 2 (Abajo): Itálica gruesa en azul marino profundo con ghost inclinado
+            mainAmountStyle = const TextStyle(
+              fontFamily: 'sans-serif',
+              fontSize: 48,
+              fontWeight: FontWeight.w900,
+              fontStyle: FontStyle.italic,
+              color: Color(0xFF0C1B6E), // Azul índigo de la captura inferior
+              letterSpacing: 1.0,
+            );
+            ghostAmountStyle = TextStyle(
+              fontFamily: 'sans-serif',
+              fontSize: 48,
+              fontWeight: FontWeight.w900,
+              fontStyle: FontStyle.italic,
+              color: defaultTextColor.withOpacity(0.09),
+              letterSpacing: 1.0,
+            );
+            break;
+
+          case LcdTypography.classicMono:
+            // Estilo Clásico: Monospace estándar recto
+            mainAmountStyle = TextStyle(
+              fontFamily: 'monospace',
+              fontSize: 46,
+              fontWeight: FontWeight.w900,
+              fontStyle: FontStyle.normal,
+              color: defaultTextColor,
+              letterSpacing: 1.0,
+            );
+            ghostAmountStyle = TextStyle(
+              fontFamily: 'monospace',
+              fontSize: 46,
+              fontWeight: FontWeight.w900,
+              fontStyle: FontStyle.normal,
+              color: defaultTextColor.withOpacity(0.08),
+              letterSpacing: 1.0,
+            );
+            break;
+        }
 
         final isUsd = currency.isUsdSelected;
         final displayAmountStr = isUsd
             ? '${_formatUsd(currency.convertMxnToUsd(amount))} USD'
             : _formatMxn(amount);
 
+        final hasItems = orderItems != null && orderItems!.isNotEmpty;
+
         return Container(
           width: double.infinity,
-          margin: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+          margin: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 4.0),
           padding: const EdgeInsets.all(3.0),
           decoration: BoxDecoration(
-            color: const Color(0xFF1E2226),
-            borderRadius: BorderRadius.circular(16),
+            color: const Color(0xFF22252A),
+            borderRadius: BorderRadius.circular(14),
             boxShadow: const [
               BoxShadow(color: Color(0x99000000), offset: Offset(0, 3), blurRadius: 4),
-              BoxShadow(color: Color(0x66FFFFFF), offset: Offset(0, -1), blurRadius: 1),
             ],
           ),
           child: Container(
             width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 10.0),
+            padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
             decoration: BoxDecoration(
-              gradient: const LinearGradient(
+              gradient: LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
                 colors: [displayBgStart, displayBgEnd],
               ),
-              borderRadius: BorderRadius.circular(13.0),
-              border: Border.all(
-                color: const Color(0xFF4A5C48),
-                width: 1.5,
-              ),
+              borderRadius: BorderRadius.circular(11.0),
+              border: Border.all(color: borderColor, width: 2.0),
+              boxShadow: const [
+                BoxShadow(color: Color(0x33000000), offset: Offset(0, 2), blurRadius: 2),
+              ],
             ),
-            child: Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              // Top Header Row: 3 Action Icons in Single Horizontal Row on Left + Label & Currency Toggle on Right
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  // Left: 3 Action Icons in Single Horizontal Row with Comfortable Touch Targets
-                  Padding(
-                    padding: const EdgeInsets.only(left: 4, top: 4, bottom: 4),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (onTapPrinter != null)
-                          InkWell(
-                            onTap: onTapPrinter,
-                            borderRadius: BorderRadius.circular(6),
-                            child: const Padding(
-                              padding: EdgeInsets.all(3.0),
-                              child: Icon(
-                                Icons.print_rounded,
-                                size: 28,
-                                color: displayText,
-                              ),
-                            ),
-                          ),
-                        if (onTapPrinter != null) const SizedBox(width: 8),
-                        if (onTapHistory != null)
-                          InkWell(
-                            onTap: onTapHistory,
-                            borderRadius: BorderRadius.circular(6),
-                            child: const Padding(
-                              padding: EdgeInsets.all(3.0),
-                              child: Icon(
-                                Icons.receipt_long_rounded,
-                                size: 28,
-                                color: displayText,
-                              ),
-                            ),
-                          ),
-                        if (onTapHistory != null) const SizedBox(width: 8),
-                        if (onTapTables != null)
-                          InkWell(
-                            onTap: onTapTables,
-                            borderRadius: BorderRadius.circular(6),
-                            child: const Padding(
-                              padding: EdgeInsets.all(3.0),
-                              child: Icon(
-                                Icons.table_restaurant_rounded,
-                                size: 28,
-                                color: displayText,
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-
-                  // Right Header: Label + Currency Toggle Chip
-                  Row(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Íconos verticales a la izquierda
+                Padding(
+                  padding: const EdgeInsets.only(top: 2.0, right: 10.0),
+                  child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Text(
-                        tr('amount_to_charge'),
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                          color: displayText.withValues(alpha: 0.8),
-                          letterSpacing: 0.3,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      // Clean Currency Toggle Chip (MXN / USD)
-                      InkWell(
-                        onTap: () => currency.toggleCurrency(),
-                        borderRadius: BorderRadius.circular(6),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                          decoration: BoxDecoration(
-                            color: isUsd ? const Color(0xFF0F172A) : displayText.withValues(alpha: 0.15),
-                            borderRadius: BorderRadius.circular(6),
+                      if (onTapTables != null)
+                        InkWell(
+                          onTap: onTapTables,
+                          borderRadius: BorderRadius.circular(4),
+                          child: Padding(
+                            padding: const EdgeInsets.all(2.0),
+                            child: Icon(Icons.table_restaurant_rounded, size: 24, color: defaultTextColor),
                           ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
+                        ),
+                      const SizedBox(height: 8),
+                      if (onTapPrinter != null)
+                        InkWell(
+                          onTap: onTapPrinter,
+                          borderRadius: BorderRadius.circular(4),
+                          child: Padding(
+                            padding: const EdgeInsets.all(2.0),
+                            child: Icon(Icons.print_rounded, size: 24, color: defaultTextColor),
+                          ),
+                        ),
+                      const SizedBox(height: 8),
+                      if (onTapHistory != null)
+                        InkWell(
+                          onTap: onTapHistory,
+                          borderRadius: BorderRadius.circular(4),
+                          child: Padding(
+                            padding: const EdgeInsets.all(2.0),
+                            child: Icon(Icons.receipt_long_rounded, size: 24, color: defaultTextColor),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+
+                // Contenido derecho: Encabezado, Desglose, Monto y Switch USD
+                Expanded(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          // Tocar aquí cambia el color del display
+                          GestureDetector(
+                            onTap: cycleTheme,
+                            child: Row(
+                              children: [
+                                Text(
+                                  tr('amount_to_charge'),
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w800,
+                                    color: defaultTextColor.withOpacity(0.85),
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                Icon(
+                                  Icons.palette_outlined,
+                                  size: 13,
+                                  color: defaultTextColor.withOpacity(0.60),
+                                ),
+                              ],
+                            ),
+                          ),
+                          InkWell(
+                            onTap: () => currency.toggleCurrency(),
+                            borderRadius: BorderRadius.circular(8),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF1D4ED8),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: Colors.white24, width: 0.8),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Text('🇺🇸', style: TextStyle(fontSize: 9)),
+                                  const SizedBox(width: 3),
+                                  const Text(
+                                    'USD',
+                                    style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.white),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+
+                      // Desglose del pedido dentro del LCD
+                      if (hasItems)
+                        Container(
+                          constraints: const BoxConstraints(maxHeight: 70),
+                          margin: const EdgeInsets.symmetric(vertical: 4.0),
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withOpacity(0.06),
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: defaultTextColor.withOpacity(0.2)),
+                          ),
+                          child: ListView.builder(
+                            shrinkWrap: true,
+                            padding: EdgeInsets.zero,
+                            itemCount: orderItems!.length,
+                            itemBuilder: (context, idx) {
+                              final it = orderItems![idx];
+                              final sub = ((it['subtotal'] ?? it['price']) as num).toDouble();
+                              final isHighlighted = idx == lastModifiedIndex;
+
+                              return AnimatedContainer(
+                                duration: const Duration(milliseconds: 350),
+                                margin: const EdgeInsets.symmetric(vertical: 1.0),
+                                padding: const EdgeInsets.symmetric(horizontal: 4.0, vertical: 1.5),
+                                decoration: BoxDecoration(
+                                  color: isHighlighted
+                                      ? defaultTextColor.withOpacity(0.18)
+                                      : Colors.transparent,
+                                  borderRadius: BorderRadius.circular(3),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        '${it['quantity']}x ${it['name']}',
+                                        style: TextStyle(
+                                          fontFamily: 'monospace',
+                                          fontSize: 11,
+                                          fontWeight: isHighlighted ? FontWeight.w900 : FontWeight.bold,
+                                          color: defaultTextColor,
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                    Text(
+                                      '\$${sub.toStringAsFixed(2)}',
+                                      style: TextStyle(
+                                        fontFamily: 'monospace',
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w900,
+                                        color: defaultTextColor,
+                                      ),
+                                    ),
+                                    if (onRemoveItem != null) ...[
+                                      const SizedBox(width: 6),
+                                      InkWell(
+                                        onTap: () => onRemoveItem!(idx),
+                                        child: const Icon(Icons.close, size: 14, color: Colors.redAccent),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+
+                      if (expression != null && expression!.isNotEmpty)
+                        Text(
+                          expression!,
+                          style: TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                            color: defaultTextColor.withOpacity(0.70),
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+
+                      // Tocar el monto alterna entre las tipografías
+                      GestureDetector(
+                        onTap: cycleTypography,
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.centerRight,
+                          child: Stack(
+                            alignment: Alignment.centerRight,
                             children: [
                               Text(
-                                isUsd ? '🇺🇸 USD' : '🇲🇽 MXN',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.bold,
-                                  color: isUsd ? Colors.white : displayText,
-                                ),
+                                isUsd ? '888,888.88 USD' : '888,888.88',
+                                style: ghostAmountStyle,
                               ),
-                              const SizedBox(width: 3),
-                              Icon(
-                                Icons.swap_horiz,
-                                size: 13,
-                                color: isUsd ? Colors.white : displayText,
+                              Text(
+                                displayAmountStr,
+                                style: mainAmountStyle,
                               ),
                             ],
                           ),
                         ),
                       ),
+
+                      if (isUsd)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2.0),
+                          child: Text(
+                            '1 USD = \$${currency.effectiveUsdRate.toStringAsFixed(2)} MXN',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w800,
+                              color: defaultTextColor.withOpacity(0.85),
+                            ),
+                          ),
+                        ),
                     ],
-                  ),
-                ],
-              ),
-
-              // Liquid Crystal Panel Horizontal Divider Line
-              Container(
-                margin: const EdgeInsets.symmetric(vertical: 6.0),
-                width: double.infinity,
-                height: 1.2,
-                color: const Color(0xFF152013).withValues(alpha: 0.20),
-              ),
-
-              // Renglón Superior LCD: Desglose / Expresión de Operaciones
-              if (expression != null && expression!.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 2.0),
-                  child: Align(
-                    alignment: Alignment.centerRight,
-                    child: Text(
-                      expression!,
-                      style: TextStyle(
-                        fontFamily: 'monospace',
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
-                        color: displayText.withValues(alpha: 0.70),
-                        letterSpacing: 0.5,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ),
-
-              const SizedBox(height: 2),
-              // Stack of Ghost Segments '888,888.88' (without $) + Active Value
-              Stack(
-                alignment: Alignment.centerRight,
-                children: [
-                  // Inactive LCD ghost digits background (SIN SIGNO $)
-                  FittedBox(
-                    fit: BoxFit.scaleDown,
-                    alignment: Alignment.centerRight,
-                    child: Text(
-                      isUsd ? '88,888.88 USD' : '888,888.88',
-                      style: TextStyle(
-                        fontFamily: 'monospace',
-                        fontSize: 42,
-                        fontWeight: FontWeight.w900,
-                        color: displayText.withValues(alpha: 0.08),
-                        letterSpacing: 0,
-                      ),
-                    ),
-                  ),
-                  // Active LCD Value in Solid Dark Ink
-                  FittedBox(
-                    fit: BoxFit.scaleDown,
-                    alignment: Alignment.centerRight,
-                    child: Text(
-                      displayAmountStr,
-                      style: const TextStyle(
-                        fontSize: 42,
-                        fontWeight: FontWeight.w800,
-                        color: displayText,
-                        letterSpacing: -1,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              if (isUsd) ...[
-                const SizedBox(height: 2),
-                Text(
-                  'Tasa de Cambio: 1 USD = \$${currency.effectiveUsdRate.toStringAsFixed(2)} MXN',
-                  style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.bold,
-                    color: displayText.withValues(alpha: 0.8),
                   ),
                 ),
               ],
-            ],
+            ),
           ),
-        ),
         );
       },
     );
