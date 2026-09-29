@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:oktane_pos/core/localization/app_locale.dart';
 import '../models/cash_cut_model.dart';
 import '../models/shift_model.dart';
 import '../services/shift_service.dart';
@@ -53,7 +54,6 @@ class _CashCalendarScreenState extends State<CashCalendarScreen> {
       final startOfMonth = DateTime(_focusedMonth.year, _focusedMonth.month, 1);
       final endOfMonth = DateTime(_focusedMonth.year, _focusedMonth.month + 1, 0, 23, 59, 59);
 
-      // 1. Fetch Month Charges
       final List<dynamic> rawCharges = await Supabase.instance.client
           .from('charges')
           .select()
@@ -74,7 +74,6 @@ class _CashCalendarScreenState extends State<CashCalendarScreen> {
         summaries[day] = CashCutSummaryModel.fromCharges(list, userId);
       });
 
-      // 2. Fetch Month Closed Shifts
       final List<ShiftModel> closedShifts = await _shiftService.getClosedShifts(userId);
       final monthShifts = closedShifts.where((s) {
         final date = s.closedAt ?? s.openedAt;
@@ -93,7 +92,7 @@ class _CashCalendarScreenState extends State<CashCalendarScreen> {
       if (mounted) {
         setState(() => _isLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error cargando datos del calendario: $e'), backgroundColor: Colors.red),
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
         );
       }
     }
@@ -123,11 +122,11 @@ class _CashCalendarScreenState extends State<CashCalendarScreen> {
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (context, setModalState) => AlertDialog(
-          title: const Row(
+          title: Row(
             children: [
-              Icon(Icons.tune, color: Colors.blue),
-              SizedBox(width: 8),
-              Text('Política de Turnos Diarios', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const Icon(Icons.tune, color: Colors.blue),
+              const SizedBox(width: 8),
+              Text(tr('policy_dialog_title'), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             ],
           ),
           content: Column(
@@ -135,22 +134,22 @@ class _CashCalendarScreenState extends State<CashCalendarScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               RadioListTile<int>(
-                title: const Text('Modo 1: 1 Turno por día (Default)'),
-                subtitle: const Text('Máximo un cierre de caja diario'),
+                title: Text(tr('mode_1_title')),
+                subtitle: Text(tr('mode_1_sub')),
                 value: 1,
                 groupValue: tempMode,
                 onChanged: (val) => setModalState(() => tempMode = val!),
               ),
               RadioListTile<int>(
-                title: const Text('Modo 2: Hasta 3 Turnos por día'),
-                subtitle: const Text('Para negocios con cambios de turno en mañana, tarde y noche'),
+                title: Text(tr('mode_2_title')),
+                subtitle: Text(tr('mode_2_sub')),
                 value: 2,
                 groupValue: tempMode,
                 onChanged: (val) => setModalState(() => tempMode = val!),
               ),
               RadioListTile<int>(
-                title: const Text('Modo 3: Turnos Libres / Manuales'),
-                subtitle: const Text('Aperturas y cierres sin límite horario definido por el dueño'),
+                title: Text(tr('mode_3_title')),
+                subtitle: Text(tr('mode_3_sub')),
                 value: 3,
                 groupValue: tempMode,
                 onChanged: (val) => setModalState(() => tempMode = val!),
@@ -160,7 +159,7 @@ class _CashCalendarScreenState extends State<CashCalendarScreen> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancelar'),
+              child: Text(tr('cancel')),
             ),
             ElevatedButton(
               onPressed: () async {
@@ -176,7 +175,7 @@ class _CashCalendarScreenState extends State<CashCalendarScreen> {
                   );
                 }
               },
-              child: const Text('Guardar'),
+              child: Text(tr('save')),
             ),
           ],
         ),
@@ -185,26 +184,20 @@ class _CashCalendarScreenState extends State<CashCalendarScreen> {
   }
 
   String _formatMonthTitle(DateTime date) {
+    final lang = AppLocale.instance.currentLang;
     try {
-      return DateFormat('MMMM yyyy', 'es_MX').format(date);
+      return DateFormat('MMMM yyyy', lang == 'es' ? 'es_MX' : 'en_US').format(date);
     } catch (_) {
-      try {
-        return DateFormat('MMMM yyyy', 'es').format(date);
-      } catch (_) {
-        return DateFormat('MMMM yyyy').format(date);
-      }
+      return DateFormat('MMMM yyyy').format(date);
     }
   }
 
   String _formatDateHeader(DateTime date) {
+    final lang = AppLocale.instance.currentLang;
     try {
-      return DateFormat('EEEE d MMMM, yyyy', 'es_MX').format(date);
+      return DateFormat('EEEE d MMMM, yyyy', lang == 'es' ? 'es_MX' : 'en_US').format(date);
     } catch (_) {
-      try {
-        return DateFormat('EEEE d MMMM, yyyy', 'es').format(date);
-      } catch (_) {
-        return DateFormat('EEEE d MMMM, yyyy').format(date);
-      }
+      return DateFormat('EEEE d MMMM, yyyy').format(date);
     }
   }
 
@@ -244,8 +237,6 @@ class _CashCalendarScreenState extends State<CashCalendarScreen> {
                 style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.blue),
               ),
               const SizedBox(height: 8),
-
-              // Total Sales Highlight Card
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
@@ -255,7 +246,7 @@ class _CashCalendarScreenState extends State<CashCalendarScreen> {
                 ),
                 child: Column(
                   children: [
-                    const Text('Total Vendido del Día', style: TextStyle(fontSize: 12, color: Colors.blue)),
+                    Text(tr('day_sales_total'), style: const TextStyle(fontSize: 12, color: Colors.blue)),
                     const SizedBox(height: 4),
                     Text(
                       _formatFullCurrency(summary?.totalCollected ?? 0.0),
@@ -265,27 +256,22 @@ class _CashCalendarScreenState extends State<CashCalendarScreen> {
                 ),
               ),
               const SizedBox(height: 16),
-
-              // Breakdown Row
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceAround,
                 children: [
-                  _buildDayBreakdownItem('Efectivo', summary?.totalCash ?? 0.0, Colors.green),
-                  _buildDayBreakdownItem('Tarjeta', summary?.totalCard ?? 0.0, Colors.blue),
-                  _buildDayBreakdownItem('QR', summary?.totalQr ?? 0.0, Colors.purple),
-                  _buildDayBreakdownItem('Cobros', (summary?.totalTransactions ?? 0).toDouble(), Colors.black87, isCount: true),
+                  _buildDayBreakdownItem(tr('cash'), summary?.totalCash ?? 0.0, Colors.green),
+                  _buildDayBreakdownItem(tr('card'), summary?.totalCard ?? 0.0, Colors.blue),
+                  _buildDayBreakdownItem(tr('qr_code'), summary?.totalQr ?? 0.0, Colors.purple),
+                  _buildDayBreakdownItem(tr('charges'), (summary?.totalTransactions ?? 0).toDouble(), Colors.black87, isCount: true),
                 ],
               ),
               const Divider(height: 24),
-
-              // Shifts List for this day
-              const Text('Cierres de Caja de la Fecha', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+              Text(tr('shifts_on_date'), style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
-
               dayShifts.isEmpty
                   ? Padding(
                       padding: const EdgeInsets.symmetric(vertical: 12.0),
-                      child: Text('No hay cierres Z registrados en esta fecha', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                      child: Text(tr('no_shifts_on_date'), style: TextStyle(fontSize: 12, color: Colors.grey[600])),
                     )
                   : Column(
                       children: dayShifts.map((shift) {
@@ -293,8 +279,8 @@ class _CashCalendarScreenState extends State<CashCalendarScreen> {
                           margin: const EdgeInsets.only(bottom: 8),
                           child: ListTile(
                             dense: true,
-                            title: Text('Turno #${shift.shiftNumber ?? '---'}', style: const TextStyle(fontWeight: FontWeight.bold)),
-                            subtitle: Text('Total: ${_formatFullCurrency(shift.totalSales)}'),
+                            title: Text('${tr('shift_num')} #${shift.shiftNumber ?? '---'}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                            subtitle: Text('${tr('total_sales')} ${_formatFullCurrency(shift.totalSales)}'),
                             trailing: OutlinedButton.icon(
                               onPressed: () async {
                                 final userEmail = Supabase.instance.client.auth.currentUser?.email ?? 'Cajero Default';
@@ -319,13 +305,12 @@ class _CashCalendarScreenState extends State<CashCalendarScreen> {
                                 } catch (_) {}
                               },
                               icon: const Icon(Icons.print_outlined, size: 14),
-                              label: const Text('Reimprimir', style: TextStyle(fontSize: 11)),
+                              label: Text(tr('reprint'), style: const TextStyle(fontSize: 11)),
                             ),
                           ),
                         );
                       }).toList(),
                     ),
-
               const SizedBox(height: 12),
             ],
           ),
@@ -349,80 +334,80 @@ class _CashCalendarScreenState extends State<CashCalendarScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final monthTitle = _formatMonthTitle(_focusedMonth);
+    return ListenableBuilder(
+      listenable: AppLocale.instance,
+      builder: (context, _) {
+        final monthTitle = _formatMonthTitle(_focusedMonth);
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Calendario de Ventas', style: TextStyle(fontWeight: FontWeight.bold)),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.tune),
-            tooltip: 'Política de Turnos',
-            onPressed: _showPolicySettingsDialog,
+        return Scaffold(
+          appBar: AppBar(
+            title: Text(tr('sales_calendar'), style: const TextStyle(fontWeight: FontWeight.bold)),
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.tune),
+                tooltip: tr('shift_policy'),
+                onPressed: _showPolicySettingsDialog,
+              ),
+              IconButton(
+                icon: const Icon(Icons.refresh),
+                tooltip: tr('refresh'),
+                onPressed: _loadCalendarData,
+              ),
+            ],
           ),
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            tooltip: 'Actualizar',
-            onPressed: _loadCalendarData,
-          ),
-        ],
-      ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : Column(
-              children: [
-                // Month Header Selector
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  color: Colors.grey[100],
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.chevron_left),
-                        onPressed: () => _changeMonth(-1),
+          body: _isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : Column(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      color: Colors.grey[100],
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.chevron_left),
+                            onPressed: () => _changeMonth(-1),
+                          ),
+                          Text(
+                            monthTitle.toUpperCase(),
+                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.blue),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.chevron_right),
+                            onPressed: () => _changeMonth(1),
+                          ),
+                        ],
                       ),
-                      Text(
-                        monthTitle.toUpperCase(),
-                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.blue),
+                    ),
+                    Container(
+                      color: Colors.grey[200],
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: Row(
+                        children: [
+                          Expanded(child: Center(child: Text(tr('sun'), style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)))),
+                          Expanded(child: Center(child: Text(tr('mon'), style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)))),
+                          Expanded(child: Center(child: Text(tr('tue'), style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)))),
+                          Expanded(child: Center(child: Text(tr('wed'), style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)))),
+                          Expanded(child: Center(child: Text(tr('thu'), style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)))),
+                          Expanded(child: Center(child: Text(tr('fri'), style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)))),
+                          Expanded(child: Center(child: Text(tr('sat'), style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)))),
+                        ],
                       ),
-                      IconButton(
-                        icon: const Icon(Icons.chevron_right),
-                        onPressed: () => _changeMonth(1),
-                      ),
-                    ],
-                  ),
+                    ),
+                    Expanded(
+                      child: _buildAirlineCalendarGrid(),
+                    ),
+                  ],
                 ),
-
-                // Weekday Headers
-                Container(
-                  color: Colors.grey[200],
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  child: const Row(
-                    children: [
-                      Expanded(child: Center(child: Text('Dom', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)))),
-                      Expanded(child: Center(child: Text('Lun', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)))),
-                      Expanded(child: Center(child: Text('Mar', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)))),
-                      Expanded(child: Center(child: Text('Mié', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)))),
-                      Expanded(child: Center(child: Text('Jue', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)))),
-                      Expanded(child: Center(child: Text('Vie', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)))),
-                      Expanded(child: Center(child: Text('Sáb', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)))),
-                    ],
-                  ),
-                ),
-
-                // Airline Flight-Style Grid
-                Expanded(
-                  child: _buildAirlineCalendarGrid(),
-                ),
-              ],
-            ),
+        );
+      },
     );
   }
 
   Widget _buildAirlineCalendarGrid() {
     final daysInMonth = DateTime(_focusedMonth.year, _focusedMonth.month + 1, 0).day;
-    final firstWeekday = DateTime(_focusedMonth.year, _focusedMonth.month, 1).weekday % 7; // 0 = Sunday
+    final firstWeekday = DateTime(_focusedMonth.year, _focusedMonth.month, 1).weekday % 7;
 
     final totalCells = firstWeekday + daysInMonth;
 
@@ -472,7 +457,6 @@ class _CashCalendarScreenState extends State<CashCalendarScreen> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Day Number
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -492,8 +476,6 @@ class _CashCalendarScreenState extends State<CashCalendarScreen> {
                         ),
                     ],
                   ),
-
-                  // Sales Amount
                   Center(
                     child: FittedBox(
                       child: Text(

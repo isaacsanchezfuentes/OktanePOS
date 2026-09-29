@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:provider/provider.dart';
 import 'package:oktane_pos/providers/auth_provider.dart';
+import 'package:oktane_pos/core/localization/app_locale.dart';
 import 'package:oktane_pos/features/printer/services/thermal_printer_service.dart';
 import '../models/charge_model.dart';
 import '../services/charge_service.dart';
@@ -35,7 +36,7 @@ class _ChargesHistoryScreenState extends State<ChargesHistoryScreen> {
   late final DateTime _listeningSince;
   final Set<String> _knownPaidIds = {};
   bool _initialLoadCompleted = false;
-  String _selectedStatusFilter = 'all'; // 'all', 'pending', 'paid'
+  String _selectedStatusFilter = 'all';
 
   void _openTableOrderDetailForPendingCharge(ChargeModel charge) {
     final zones = _tableService.getZones();
@@ -100,8 +101,8 @@ class _ChargesHistoryScreenState extends State<ChargesHistoryScreen> {
           _knownPaidIds.add(charge.id!);
 
           if (isNewTransition && mounted) {
-            final folio = charge.id!.length >= 4 
-                ? charge.id!.substring(0, 4).toUpperCase() 
+            final folio = charge.id!.length >= 4
+                ? charge.id!.substring(0, 4).toUpperCase()
                 : charge.id!;
             WidgetsBinding.instance.addPostFrameCallback((_) {
               ScaffoldMessenger.of(context).showSnackBar(
@@ -111,7 +112,7 @@ class _ChargesHistoryScreenState extends State<ChargesHistoryScreen> {
                       const Text('💰 ', style: TextStyle(fontSize: 20)),
                       Expanded(
                         child: Text(
-                          '¡Cobro #$folio pagado exitosamente! \$${charge.amount.toStringAsFixed(2)} MXN',
+                          '¡Ticket #$folio ${tr('paid').toLowerCase()}! \$${charge.amount.toStringAsFixed(2)} MXN',
                           style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
                         ),
                       ),
@@ -145,10 +146,10 @@ class _ChargesHistoryScreenState extends State<ChargesHistoryScreen> {
     try {
       await _chargeService.updateChargeStatus(charge.id!, newStatus);
       if (mounted) {
-        final statusLabel = newStatus == 'paid' ? 'Pagado' : 'Cancelado';
+        final statusLabel = newStatus == 'paid' ? tr('paid') : tr('cancelled');
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Cobro marcado como $statusLabel'),
+            content: Text('${tr('status_marked')} $statusLabel'),
             backgroundColor: newStatus == 'paid' ? Colors.green[700] : Colors.red[700],
             duration: const Duration(seconds: 2),
           ),
@@ -158,7 +159,7 @@ class _ChargesHistoryScreenState extends State<ChargesHistoryScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error al actualizar estado: $e'),
+            content: Text('Error: $e'),
             backgroundColor: Colors.red,
           ),
         );
@@ -173,6 +174,8 @@ class _ChargesHistoryScreenState extends State<ChargesHistoryScreen> {
       context,
       amount: charge.amount,
       concept: charge.concept,
+      waiterId: charge.waiterId ?? '',
+      waiterName: charge.waiterName ?? 'Mesero',
       chargeService: _chargeService,
     );
 
@@ -184,9 +187,10 @@ class _ChargesHistoryScreenState extends State<ChargesHistoryScreen> {
       );
 
       if (mounted) {
+        final folio = charge.id!.length >= 4 ? charge.id!.substring(0, 4).toUpperCase() : charge.id;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('✅ Ticket #${charge.id!.length >= 4 ? charge.id!.substring(0, 4).toUpperCase() : charge.id} cobrado exitosamente'),
+            content: Text('✅ Ticket #$folio ${tr('ticket_settled').toLowerCase()}'),
             backgroundColor: Colors.green[700],
           ),
         );
@@ -196,89 +200,89 @@ class _ChargesHistoryScreenState extends State<ChargesHistoryScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final userId = Supabase.instance.client.auth.currentUser?.id ?? '';
+    return ListenableBuilder(
+      listenable: AppLocale.instance,
+      builder: (context, _) {
+        final userId = Supabase.instance.client.auth.currentUser?.id ?? '';
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Historial de Cobros', style: TextStyle(fontWeight: FontWeight.bold)),
-        elevation: 1,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.calendar_month),
-            tooltip: 'Calendario de Ventas',
-            onPressed: () {
-              Navigator.push(context, MaterialPageRoute(builder: (context) => const CashCalendarScreen()));
-            },
+        return Scaffold(
+          appBar: AppBar(
+            title: Text(tr('charges_history'), style: const TextStyle(fontWeight: FontWeight.bold)),
+            elevation: 1,
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.calendar_month),
+                tooltip: tr('sales_calendar'),
+                onPressed: () {
+                  Navigator.push(context, MaterialPageRoute(builder: (context) => const CashCalendarScreen()));
+                },
+              ),
+              IconButton(
+                icon: const Icon(Icons.account_balance_wallet_outlined),
+                tooltip: tr('cash_cut'),
+                onPressed: () {
+                  Navigator.push(context, MaterialPageRoute(builder: (context) => const CashCutScreen()));
+                },
+              ),
+            ],
           ),
-          IconButton(
-            icon: const Icon(Icons.account_balance_wallet_outlined),
-            tooltip: 'Corte de Caja',
-            onPressed: () {
-              Navigator.push(context, MaterialPageRoute(builder: (context) => const CashCutScreen()));
+          body: RefreshIndicator(
+            onRefresh: () async {
+              setState(() {});
             },
+            child: StreamBuilder<List<ChargeModel>>(
+              stream: _chargeService.getTodayChargesStream(userId),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+
+                final charges = snapshot.data ?? [];
+                _checkRealtimePaymentUpdates(charges);
+
+                final totalPaid = charges
+                    .where((c) => c.status == 'paid')
+                    .fold(0.0, (sum, c) => sum + c.amount);
+
+                final pendingCount = charges.where((c) => c.status == 'pending').length;
+
+                final filteredCharges = charges.where((c) {
+                  if (_selectedStatusFilter == 'pending') return c.status == 'pending';
+                  if (_selectedStatusFilter == 'paid') return c.status == 'paid';
+                  return true;
+                }).toList();
+
+                return Column(
+                  children: [
+                    _buildSummaryHeader(totalPaid, pendingCount),
+                    _buildFilterBar(),
+                    Expanded(
+                      child: filteredCharges.isEmpty
+                          ? ListView(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        children: [
+                          SizedBox(height: MediaQuery.of(context).size.height * 0.15),
+                          _buildEmptyState(),
+                        ],
+                      )
+                          : ListView.builder(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        itemCount: filteredCharges.length,
+                        itemBuilder: (context, index) {
+                          final charge = filteredCharges[index];
+                          final folio = filteredCharges.length - index;
+                          return _buildChargeCard(charge, folio);
+                        },
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
           ),
-        ],
-      ),
-      body: RefreshIndicator(
-        onRefresh: () async {
-          setState(() {});
-        },
-        child: StreamBuilder<List<ChargeModel>>(
-          stream: _chargeService.getTodayChargesStream(userId),
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
-              return const Center(child: CircularProgressIndicator());
-            }
-
-            final charges = snapshot.data ?? [];
-            _checkRealtimePaymentUpdates(charges);
-
-            final totalPaid = charges
-                .where((c) => c.status == 'paid')
-                .fold(0.0, (sum, c) => sum + c.amount);
-
-            final pendingCount = charges.where((c) => c.status == 'pending').length;
-
-            final filteredCharges = charges.where((c) {
-              if (_selectedStatusFilter == 'pending') return c.status == 'pending';
-              if (_selectedStatusFilter == 'paid') return c.status == 'paid';
-              return true;
-            }).toList();
-
-            return Column(
-              children: [
-                // Summary Header
-                _buildSummaryHeader(totalPaid, pendingCount),
-
-                // Status Filter Bar
-                _buildFilterBar(),
-
-                // List of Charges
-                Expanded(
-                  child: filteredCharges.isEmpty
-                      ? ListView(
-                          physics: const AlwaysScrollableScrollPhysics(),
-                          children: [
-                            SizedBox(height: MediaQuery.of(context).size.height * 0.15),
-                            _buildEmptyState(),
-                          ],
-                        )
-                      : ListView.builder(
-                          physics: const AlwaysScrollableScrollPhysics(),
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                          itemCount: filteredCharges.length,
-                          itemBuilder: (context, index) {
-                            final charge = filteredCharges[index];
-                            final folio = filteredCharges.length - index;
-                            return _buildChargeCard(charge, folio);
-                          },
-                        ),
-                ),
-              ],
-            );
-          },
-        ),
-      ),
+        );
+      },
     );
   }
 
@@ -288,7 +292,7 @@ class _ChargesHistoryScreenState extends State<ChargesHistoryScreen> {
       child: Row(
         children: [
           FilterChip(
-            label: const Text('Todos', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+            label: Text(tr('all'), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
             selected: _selectedStatusFilter == 'all',
             selectedColor: Colors.blue[100],
             onSelected: (val) {
@@ -297,7 +301,7 @@ class _ChargesHistoryScreenState extends State<ChargesHistoryScreen> {
           ),
           const SizedBox(width: 8),
           FilterChip(
-            label: const Text('Pendientes', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+            label: Text(tr('pending'), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
             selected: _selectedStatusFilter == 'pending',
             selectedColor: Colors.orange[100],
             onSelected: (val) {
@@ -306,7 +310,7 @@ class _ChargesHistoryScreenState extends State<ChargesHistoryScreen> {
           ),
           const SizedBox(width: 8),
           FilterChip(
-            label: const Text('Pagados', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+            label: Text(tr('paid'), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
             selected: _selectedStatusFilter == 'paid',
             selectedColor: Colors.green[100],
             onSelected: (val) {
@@ -336,7 +340,7 @@ class _ChargesHistoryScreenState extends State<ChargesHistoryScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Total Cobrado Hoy',
+                  tr('total_collected_today'),
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
@@ -367,7 +371,7 @@ class _ChargesHistoryScreenState extends State<ChargesHistoryScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Pendientes',
+                    tr('pending'),
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
@@ -394,7 +398,7 @@ class _ChargesHistoryScreenState extends State<ChargesHistoryScreen> {
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: Text(
-                            'Por cobrar',
+                            tr('to_collect'),
                             style: TextStyle(
                               fontSize: 10,
                               fontWeight: FontWeight.bold,
@@ -421,12 +425,12 @@ class _ChargesHistoryScreenState extends State<ChargesHistoryScreen> {
           Icon(Icons.receipt_long_outlined, size: 70, color: Colors.grey[400]),
           const SizedBox(height: 12),
           Text(
-            'No hay cobros registrados hoy',
+            tr('no_charges_today'),
             style: TextStyle(fontSize: 16, color: Colors.grey[600], fontWeight: FontWeight.w500),
           ),
           const SizedBox(height: 4),
           Text(
-            'Los cobros creados en el teclado aparecerán aquí',
+            tr('charges_appear_here'),
             style: TextStyle(fontSize: 12, color: Colors.grey[500]),
           ),
         ],
@@ -452,7 +456,6 @@ class _ChargesHistoryScreenState extends State<ChargesHistoryScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Top Row: Folio, Time, Status Chip
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -484,7 +487,7 @@ class _ChargesHistoryScreenState extends State<ChargesHistoryScreen> {
                     children: [
                       IconButton(
                         icon: const Icon(Icons.print_outlined, size: 20),
-                        tooltip: 'Reimprimir Ticket',
+                        tooltip: tr('reprint_receipt'),
                         constraints: const BoxConstraints(),
                         padding: const EdgeInsets.symmetric(horizontal: 6),
                         onPressed: () async {
@@ -507,9 +510,7 @@ class _ChargesHistoryScreenState extends State<ChargesHistoryScreen> {
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
                                 content: Text(
-                                  success 
-                                      ? '✅ Ticket enviado a impresora' 
-                                      : '⚠️ No se pudo imprimir (verifique impresora)',
+                                  success ? tr('reprint_success') : tr('reprint_error'),
                                 ),
                                 duration: const Duration(seconds: 2),
                               ),
@@ -524,8 +525,6 @@ class _ChargesHistoryScreenState extends State<ChargesHistoryScreen> {
                 ],
               ),
               const SizedBox(height: 12),
-
-              // Middle Row: Amount, Concept, Payment Method (Only show payment method if paid)
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -559,8 +558,6 @@ class _ChargesHistoryScreenState extends State<ChargesHistoryScreen> {
                   if (!isPending) _buildMethodBadge(charge.paymentMethod),
                 ],
               ),
-
-              // Bottom Actions (if pending)
               if (isPending) ...[
                 const SizedBox(height: 12),
                 const Divider(height: 1),
@@ -571,7 +568,7 @@ class _ChargesHistoryScreenState extends State<ChargesHistoryScreen> {
                     OutlinedButton.icon(
                       onPressed: () => _updateStatus(charge, 'cancelled'),
                       icon: const Icon(Icons.cancel_outlined, size: 16, color: Colors.red),
-                      label: const Text('Cancelar', style: TextStyle(color: Colors.red, fontSize: 13)),
+                      label: Text(tr('cancel'), style: const TextStyle(color: Colors.red, fontSize: 13)),
                       style: OutlinedButton.styleFrom(
                         side: const BorderSide(color: Colors.red),
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -582,7 +579,7 @@ class _ChargesHistoryScreenState extends State<ChargesHistoryScreen> {
                     ElevatedButton.icon(
                       onPressed: () => _settlePendingCharge(charge),
                       icon: const Icon(Icons.point_of_sale, size: 16),
-                      label: const Text('COBRAR CUENTA', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                      label: Text(tr('charge_bill'), style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.green[700],
                         foregroundColor: Colors.white,
@@ -609,18 +606,18 @@ class _ChargesHistoryScreenState extends State<ChargesHistoryScreen> {
       case 'paid':
         backgroundColor = Colors.green[100]!;
         textColor = Colors.green[900]!;
-        label = 'Pagado';
+        label = tr('paid');
         break;
       case 'cancelled':
         backgroundColor = Colors.red[100]!;
         textColor = Colors.red[900]!;
-        label = 'Cancelado';
+        label = tr('cancelled');
         break;
       case 'pending':
       default:
         backgroundColor = Colors.orange[100]!;
         textColor = Colors.orange[900]!;
-        label = 'Pendiente';
+        label = tr('pending');
         break;
     }
 
@@ -648,16 +645,16 @@ class _ChargesHistoryScreenState extends State<ChargesHistoryScreen> {
     switch (method.toLowerCase()) {
       case 'tarjeta':
         icon = Icons.contactless_outlined;
-        label = 'Tarjeta';
+        label = tr('card');
         break;
       case 'qr':
         icon = Icons.qr_code_2_outlined;
-        label = 'QR';
+        label = tr('qr_code');
         break;
       case 'efectivo':
       default:
         icon = Icons.payments_outlined;
-        label = 'Efectivo';
+        label = tr('cash');
         break;
     }
 

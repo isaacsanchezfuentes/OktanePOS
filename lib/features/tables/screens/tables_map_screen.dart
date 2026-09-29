@@ -2,6 +2,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+import 'package:oktane_pos/core/localization/app_locale.dart';
 import 'package:oktane_pos/providers/auth_provider.dart';
 import '../../auth/services/rbac_service.dart';
 import '../models/zone_model.dart';
@@ -13,11 +14,13 @@ import '../widgets/table_tickets_bottom_sheet.dart';
 class TablesMapScreen extends StatefulWidget {
   final TableService? tableService;
   final RbacService? rbacService;
+  final bool isSelectionMode;
 
   const TablesMapScreen({
     super.key,
     this.tableService,
     this.rbacService,
+    this.isSelectionMode = false,
   });
 
   @override
@@ -85,7 +88,13 @@ class _TablesMapScreenState extends State<TablesMapScreen> with SingleTickerProv
     if (_isEditMode) {
       setState(() => _isEditMode = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('✅ Coordenadas de mapa guardadas exitosamente')),
+        SnackBar(
+          content: Text(
+            AppLocale.instance.isSpanish
+                ? '✅ Coordenadas de mapa guardadas exitosamente'
+                : '✅ Map coordinates saved successfully',
+          ),
+        ),
       );
       return;
     }
@@ -99,11 +108,14 @@ class _TablesMapScreenState extends State<TablesMapScreen> with SingleTickerProv
       final bool? granted = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
-          title: const Row(
+          title: Row(
             children: [
-              Icon(Icons.lock, color: Colors.indigo),
-              SizedBox(width: 8),
-              Text('PIN de Gerente Requerido', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              const Icon(Icons.lock, color: Colors.indigo),
+              const SizedBox(width: 8),
+              Text(
+                AppLocale.instance.isSpanish ? 'PIN de Gerente Requerido' : 'Manager PIN Required',
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
             ],
           ),
           content: Form(
@@ -111,24 +123,33 @@ class _TablesMapScreenState extends State<TablesMapScreen> with SingleTickerProv
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text('El modo edición gerencial (mover posiciones) requiere autorización de supervisor.'),
+                Text(
+                  AppLocale.instance.isSpanish
+                      ? 'El modo edición gerencial (mover posiciones) requiere autorización de supervisor.'
+                      : 'Layout editing mode (repositioning tables) requires supervisor authorization.',
+                ),
                 const SizedBox(height: 12),
                 TextFormField(
                   controller: pinCtrl,
                   keyboardType: TextInputType.number,
                   obscureText: true,
                   maxLength: 4,
-                  decoration: const InputDecoration(
-                    labelText: 'PIN de Gerente',
-                    border: OutlineInputBorder(),
+                  decoration: InputDecoration(
+                    labelText: AppLocale.instance.isSpanish ? 'PIN de Gerente' : 'Manager PIN',
+                    border: const OutlineInputBorder(),
                   ),
-                  validator: (v) => (v == null || v.trim().length < 4) ? '4 dígitos requeridos' : null,
+                  validator: (v) => (v == null || v.trim().length < 4)
+                      ? (AppLocale.instance.isSpanish ? '4 dígitos requeridos' : '4 digits required')
+                      : null,
                 ),
               ],
             ),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text(tr('cancel')),
+            ),
             ElevatedButton(
               onPressed: () async {
                 if (!formKey.currentState!.validate()) return;
@@ -137,7 +158,7 @@ class _TablesMapScreenState extends State<TablesMapScreen> with SingleTickerProv
                   Navigator.pop(ctx, isValid);
                 }
               },
-              child: const Text('Desbloquear'),
+              child: Text(AppLocale.instance.isSpanish ? 'Desbloquear' : 'Unlock'),
             ),
           ],
         ),
@@ -147,7 +168,14 @@ class _TablesMapScreenState extends State<TablesMapScreen> with SingleTickerProv
         setState(() => _isEditMode = true);
       } else if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('❌ Acceso denegado: PIN de gerente requerido'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text(
+              AppLocale.instance.isSpanish
+                  ? '❌ Acceso denegado: PIN de gerente requerido'
+                  : '❌ Access denied: Manager PIN required',
+            ),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     }
@@ -183,7 +211,6 @@ class _TablesMapScreenState extends State<TablesMapScreen> with SingleTickerProv
   Widget _buildZoneCanvas(ZoneModel zone, List<RestaurantTableModel> tables) {
     return Column(
       children: [
-        // Responsive Scrollable Legend Bar - Toast/Slate Industrial Style
         Container(
           width: double.infinity,
           color: TableTheme.zoneBarBackground,
@@ -196,9 +223,21 @@ class _TablesMapScreenState extends State<TablesMapScreen> with SingleTickerProv
               spacing: 16.0,
               runSpacing: 4.0,
               children: [
-                _buildLegendItem('Disponible', TableTheme.freeBorder, TableTheme.freeText),
-                _buildLegendItem('Ocupada', TableTheme.occupiedBorder, TableTheme.occupiedText),
-                _buildLegendItem('Cuenta Pedida', TableTheme.billedBorder, TableTheme.billedText),
+                _buildLegendItem(
+                  AppLocale.instance.isSpanish ? 'Disponible' : 'Available',
+                  TableTheme.freeBorder,
+                  TableTheme.freeText,
+                ),
+                _buildLegendItem(
+                  AppLocale.instance.isSpanish ? 'Ocupada' : 'Occupied',
+                  TableTheme.occupiedBorder,
+                  TableTheme.occupiedText,
+                ),
+                _buildLegendItem(
+                  AppLocale.instance.isSpanish ? 'Cuenta Pedida' : 'Bill Requested',
+                  TableTheme.billedBorder,
+                  TableTheme.billedText,
+                ),
               ],
             ),
           ),
@@ -231,7 +270,13 @@ class _TablesMapScreenState extends State<TablesMapScreen> with SingleTickerProv
                               }
                             : null,
                         onTap: () {
-                          if (!_isEditMode) {
+                          if (_isEditMode) return;
+                          if (widget.isSelectionMode) {
+                            Navigator.pop(context, {
+                              'table': table,
+                              'zone': zone,
+                            });
+                          } else {
                             _showTableTicketsBottomSheet(zone, table);
                           }
                         },
@@ -302,7 +347,7 @@ class _TablesMapScreenState extends State<TablesMapScreen> with SingleTickerProv
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Text(
-              isStool ? 'B${table.tableNumber}' : 'Mesa ${table.tableNumber}',
+              isStool ? 'B${table.tableNumber}' : '${tr('table')} ${table.tableNumber}',
               style: TextStyle(fontWeight: FontWeight.bold, fontSize: isStool ? 12 : 13, color: textColor),
             ),
             const SizedBox(height: 1),
@@ -369,54 +414,67 @@ class _TablesMapScreenState extends State<TablesMapScreen> with SingleTickerProv
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: TableTheme.floorBackground,
-      appBar: AppBar(
-        backgroundColor: TableTheme.zoneBarBackground,
-        foregroundColor: Colors.white,
-        title: FittedBox(
-          fit: BoxFit.scaleDown,
-          alignment: Alignment.centerLeft,
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.table_restaurant, color: TableTheme.occupiedBorder),
-              const SizedBox(width: 8),
-              Text(
-                _isEditMode ? 'Edición de Plano' : 'Distribución de Mesas',
-                style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+    return ListenableBuilder(
+      listenable: Listenable.merge([
+        _tableService,
+        AppLocale.instance,
+      ]),
+      builder: (context, _) {
+        final titleText = _isEditMode
+            ? (AppLocale.instance.isSpanish ? 'Edición de Plano' : 'Layout Editing')
+            : (AppLocale.instance.isSpanish ? 'Distribución de Mesas' : 'Tables Distribution');
+
+        return Scaffold(
+          backgroundColor: TableTheme.floorBackground,
+          appBar: AppBar(
+            backgroundColor: TableTheme.zoneBarBackground,
+            foregroundColor: Colors.white,
+            title: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.table_restaurant, color: TableTheme.occupiedBorder),
+                  const SizedBox(width: 8),
+                  Text(
+                    titleText,
+                    style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+                  ),
+                ],
               ),
+            ),
+            actions: [
+              if (!widget.isSelectionMode)
+                IconButton(
+                  icon: Icon(
+                    _isEditMode ? Icons.check_circle : Icons.edit_location_alt,
+                    color: _isEditMode ? TableTheme.freeBorder : TableTheme.occupiedBorder,
+                  ),
+                  tooltip: _isEditMode
+                      ? (AppLocale.instance.isSpanish ? 'Guardar Cambios' : 'Save Changes')
+                      : (AppLocale.instance.isSpanish ? 'Modo Edición' : 'Edit Mode'),
+                  onPressed: _toggleEditMode,
+                ),
             ],
+            bottom: TabBar(
+              controller: _tabController,
+              isScrollable: false,
+              labelColor: TableTheme.occupiedText,
+              unselectedLabelColor: TableTheme.textSecondary,
+              indicatorColor: TableTheme.occupiedBorder,
+              tabs: _zones.map((z) => Tab(text: z.name)).toList(),
+            ),
           ),
-        ),
-        actions: [
-          IconButton(
-            icon: Icon(_isEditMode ? Icons.check_circle : Icons.edit_location_alt, color: _isEditMode ? TableTheme.freeBorder : TableTheme.occupiedBorder),
-            tooltip: _isEditMode ? 'Guardar Cambios' : 'Modo Edición',
-            onPressed: _toggleEditMode,
-          ),
-        ],
-        bottom: TabBar(
-          controller: _tabController,
-          isScrollable: false,
-          labelColor: TableTheme.occupiedText,
-          unselectedLabelColor: TableTheme.textSecondary,
-          indicatorColor: TableTheme.occupiedBorder,
-          tabs: _zones.map((z) => Tab(text: z.name)).toList(),
-        ),
-      ),
-      body: ListenableBuilder(
-        listenable: _tableService,
-        builder: (context, _) {
-          return TabBarView(
+          body: TabBarView(
             controller: _tabController,
             children: _zones.map((zone) {
               final tables = _tableService.getTablesByZone(zone.id);
               return _buildZoneCanvas(zone, tables);
             }).toList(),
-          );
-        },
-      ),
+          ),
+        );
+      },
     );
   }
 }

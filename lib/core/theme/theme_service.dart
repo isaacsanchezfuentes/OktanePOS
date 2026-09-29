@@ -7,6 +7,7 @@ enum AppThemeMode {
 
   static const AppThemeMode casioBlue = classicBlue;
   static const AppThemeMode casioPink = classicPink;
+  static const AppThemeMode roseGold = classicPink; // Alias directo para Oro Rosa
 }
 
 class ThemeService extends ChangeNotifier {
@@ -16,9 +17,26 @@ class ThemeService extends ChangeNotifier {
   AppThemeMode currentTheme = AppThemeMode.slateIndustrial;
 
   void setTheme(AppThemeMode mode) {
-    currentTheme = mode;
-    notifyListeners();
+    if (currentTheme != mode) {
+      currentTheme = mode;
+      notifyListeners();
+    }
   }
+
+  /// Retorna la ruta del archivo de imagen de fondo según el tema activo
+  String get currentFaceplateAsset {
+    switch (currentTheme) {
+      case AppThemeMode.classicPink:
+        return 'assets/images/faceplates/rose_gold_faceplate.jpg';
+      case AppThemeMode.classicBlue:
+      case AppThemeMode.slateIndustrial:
+      default:
+        return 'assets/images/faceplates/Gemini_Generated_Image_cpngq2cpngq2cpng.jpg';
+    }
+  }
+
+  /// Helper booleano para identificar si el modo Oro Rosa está activo
+  bool get isRoseGold => currentTheme == AppThemeMode.classicPink;
 
   // Constantes de botones funcionales de alto contraste
   static const Color keyAC = Color(0xFF16A34A);        // Verde Esmeralda

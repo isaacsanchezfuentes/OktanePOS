@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:oktane_pos/core/localization/app_locale.dart';
 import '../models/cash_cut_model.dart';
 import '../models/shift_model.dart';
 import '../services/cash_cut_service.dart';
@@ -71,7 +72,7 @@ class _CashCutScreenState extends State<CashCutScreen> {
       if (mounted) {
         setState(() => _isLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error cargando corte de caja: $e'), backgroundColor: Colors.red),
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
         );
       }
     }
@@ -94,7 +95,7 @@ class _CashCutScreenState extends State<CashCutScreen> {
 
     final userEmail = Supabase.instance.client.auth.currentUser?.email ?? 'Cajero Default';
 
-    // 1. Close shift in Supabase if an active shift exists
+    // 1. Cierre en Supabase
     bool shiftClosed = false;
     if (_activeShift?.id != null) {
       try {
@@ -111,7 +112,7 @@ class _CashCutScreenState extends State<CashCutScreen> {
       }
     }
 
-    // 2. Fault-tolerant thermal ticket printing
+    // 2. Impresión de ticket térmico
     bool printSuccess = false;
     try {
       printSuccess = await _printerService.printCashCutTicket(
@@ -122,7 +123,7 @@ class _CashCutScreenState extends State<CashCutScreen> {
         cashierName: userEmail,
       );
     } catch (e) {
-      debugPrint('⚠️ Error imprimiendo ticket de corte Z (cierre preservado): $e');
+      debugPrint('⚠️ Error imprimiendo ticket de corte Z: $e');
     }
 
     if (mounted) {
@@ -130,11 +131,11 @@ class _CashCutScreenState extends State<CashCutScreen> {
 
       final String message = shiftClosed
           ? printSuccess
-              ? '✅ Turno cerrado en Supabase y Corte Z impreso exitosamente'
-              : '✅ Turno cerrado en Supabase (Impresora no conectada)'
+              ? tr('shift_closed_print_success')
+              : tr('shift_closed_no_print')
           : printSuccess
-              ? '✅ Corte Z impreso exitosamente'
-              : '⚠️ No se pudo conectar a la impresora para imprimir el Corte Z';
+              ? tr('z_cut_printed')
+              : tr('z_cut_print_error');
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -144,7 +145,6 @@ class _CashCutScreenState extends State<CashCutScreen> {
         ),
       );
 
-      // Reload summary to reflect closed status
       _loadSummary();
     }
   }
@@ -157,14 +157,14 @@ class _CashCutScreenState extends State<CashCutScreen> {
       await _shiftService.openShift(userId: userId, initialCash: _initialFloat);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('✅ Nuevo turno abierto exitosamente'), backgroundColor: Colors.green),
+          SnackBar(content: Text(tr('new_shift_success')), backgroundColor: Colors.green),
         );
         _loadSummary();
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error abriendo nuevo turno: $e'), backgroundColor: Colors.red),
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
         );
       }
     }
@@ -179,162 +179,160 @@ class _CashCutScreenState extends State<CashCutScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          _activeShift != null && _activeShift!.shiftNumber != null
-              ? 'Corte de Caja (Turno #${_activeShift!.shiftNumber})'
-              : 'Corte de Caja (Cierre Z)',
-          style: const TextStyle(fontWeight: FontWeight.bold),
-        ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.calendar_month),
-            tooltip: 'Calendario de Ventas',
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const CashCalendarScreen()),
-              );
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.history),
-            tooltip: 'Historial de Turnos',
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const ShiftsHistoryScreen()),
-              );
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            tooltip: 'Recargar Datos',
-            onPressed: _loadSummary,
-          ),
-        ],
-      ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _summary == null
-              ? const Center(child: Text('No se pudieron obtener los datos de corte'))
-              : SingleChildScrollView(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      // Active Shift Status Chip
-                      _buildShiftHeaderBadge(),
-                      const SizedBox(height: 12),
+    return ListenableBuilder(
+      listenable: AppLocale.instance,
+      builder: (context, _) {
+        final titleText = _activeShift != null && _activeShift!.shiftNumber != null
+            ? '${tr('cash_cut_shift')} #${_activeShift!.shiftNumber})'
+            : tr('cash_cut_z');
 
-                      // Total Collected Big Banner
-                      _buildTotalBanner(_summary!),
-                      const SizedBox(height: 16),
-
-                      // Breakdown Cards (Cash, Card, QR)
-                      Row(
+        return Scaffold(
+          appBar: AppBar(
+            title: Text(
+              titleText,
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.calendar_month),
+                tooltip: tr('sales_calendar'),
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const CashCalendarScreen()),
+                  );
+                },
+              ),
+              IconButton(
+                icon: const Icon(Icons.history),
+                tooltip: tr('shifts_history'),
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const ShiftsHistoryScreen()),
+                  );
+                },
+              ),
+              IconButton(
+                icon: const Icon(Icons.refresh),
+                tooltip: tr('reload_data'),
+                onPressed: _loadSummary,
+              ),
+            ],
+          ),
+          body: _isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : _summary == null
+                  ? Center(child: Text(tr('could_not_load_data')))
+                  : SingleChildScrollView(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          Expanded(child: _buildMetricCard('Efectivo', _summary!.totalCash, Icons.payments, Colors.green)),
-                          const SizedBox(width: 8),
-                          Expanded(child: _buildMetricCard('Tarjeta', _summary!.totalCard, Icons.contactless, Colors.blue)),
-                          const SizedBox(width: 8),
-                          Expanded(child: _buildMetricCard('QR Dinámico', _summary!.totalQr, Icons.qr_code_2, Colors.purple)),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
+                          _buildShiftHeaderBadge(),
+                          const SizedBox(height: 12),
 
-                      // Secondary Metrics Card (Transactions, Ticket Promedio)
-                      _buildSecondaryMetricsCard(_summary!),
-                      const SizedBox(height: 16),
+                          _buildTotalBanner(_summary!),
+                          const SizedBox(height: 16),
 
-                      // Waiter Tips Breakdown Section
-                      buildWaiterTipsBreakdown(_summary!.waiterBreakdown),
-                      const SizedBox(height: 20),
-
-                      // Drawer Balancing Section
-                      const Text(
-                        'Arqueo de Cajón',
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                      ),
-                      const SizedBox(height: 8),
-
-                      Card(
-                        elevation: 2,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                        child: Padding(
-                          padding: const EdgeInsets.all(16.0),
-                          child: Column(
+                          Row(
                             children: [
-                              TextField(
-                                controller: _initialFloatController,
-                                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                decoration: InputDecoration(
-                                  labelText: 'Fondo Inicial de Caja',
-                                  prefixText: '\$ ',
-                                  suffixText: 'MXN',
-                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                                ),
-                                onChanged: (_) => setState(() {}),
-                              ),
-                              const SizedBox(height: 12),
-                              TextField(
-                                controller: _countedCashController,
-                                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                decoration: InputDecoration(
-                                  labelText: 'Efectivo Contado en Cajón',
-                                  prefixText: '\$ ',
-                                  suffixText: 'MXN',
-                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                                ),
-                                onChanged: (_) => setState(() {}),
-                              ),
-                              const SizedBox(height: 16),
-
-                              // Calculation Details
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Text('Efectivo Esperado:', style: TextStyle(color: Colors.grey[700], fontSize: 14)),
-                                  Text(
-                                    _formatCurrency(_expectedCash),
-                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 8),
-
-                              // Difference Banner
-                              _buildDifferenceBanner(),
+                              Expanded(child: _buildMetricCard(tr('cash'), _summary!.totalCash, Icons.payments, Colors.green)),
+                              const SizedBox(width: 8),
+                              Expanded(child: _buildMetricCard(tr('card'), _summary!.totalCard, Icons.contactless, Colors.blue)),
+                              const SizedBox(width: 8),
+                              Expanded(child: _buildMetricCard(tr('dynamic_qr'), _summary!.totalQr, Icons.qr_code_2, Colors.purple)),
                             ],
                           ),
-                        ),
-                      ),
-                      const SizedBox(height: 24),
+                          const SizedBox(height: 16),
 
-                      // Main Action Button: Close Shift & Print
-                      SizedBox(
-                        height: 54,
-                        child: ElevatedButton.icon(
-                          onPressed: _isPrinting ? null : _printAndCloseShift,
-                          icon: const Icon(Icons.print_outlined, size: 24),
-                          label: _isPrinting
-                              ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                              : const Text(
-                                  'CERRAR TURNO E IMPRIMIR CORTE Z',
-                                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
-                                ),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.indigo[800],
-                            foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                          _buildSecondaryMetricsCard(_summary!),
+                          const SizedBox(height: 16),
+
+                          buildWaiterTipsBreakdown(_summary!.waiterBreakdown),
+                          const SizedBox(height: 20),
+
+                          Text(
+                            tr('drawer_balance'),
+                            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                           ),
-                        ),
+                          const SizedBox(height: 8),
+
+                          Card(
+                            elevation: 2,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                            child: Padding(
+                              padding: const EdgeInsets.all(16.0),
+                              child: Column(
+                                children: [
+                                  TextField(
+                                    controller: _initialFloatController,
+                                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                    decoration: InputDecoration(
+                                      labelText: tr('initial_cash_label'),
+                                      prefixText: '\$ ',
+                                      suffixText: 'MXN',
+                                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                                    ),
+                                    onChanged: (_) => setState(() {}),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  TextField(
+                                    controller: _countedCashController,
+                                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                    decoration: InputDecoration(
+                                      labelText: tr('counted_cash_drawer'),
+                                      prefixText: '\$ ',
+                                      suffixText: 'MXN',
+                                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                                    ),
+                                    onChanged: (_) => setState(() {}),
+                                  ),
+                                  const SizedBox(height: 16),
+
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      Text(tr('expected_cash'), style: TextStyle(color: Colors.grey[700], fontSize: 14)),
+                                      Text(
+                                        _formatCurrency(_expectedCash),
+                                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 8),
+
+                                  _buildDifferenceBanner(),
+                                ],
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 24),
+
+                          SizedBox(
+                            height: 54,
+                            child: ElevatedButton.icon(
+                              onPressed: _isPrinting ? null : _printAndCloseShift,
+                              icon: const Icon(Icons.print_outlined, size: 24),
+                              label: _isPrinting
+                                  ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                                  : Text(
+                                      tr('close_shift_and_print'),
+                                      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                                    ),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.indigo[800],
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 24),
+                        ],
                       ),
-                      const SizedBox(height: 24),
-                    ],
-                  ),
-                ),
+                    ),
+        );
+      },
     );
   }
 
@@ -361,8 +359,8 @@ class _CashCutScreenState extends State<CashCutScreen> {
               const SizedBox(width: 8),
               Text(
                 isOpen 
-                    ? 'Turno Activo #${_activeShift?.shiftNumber ?? 'Abierto'}' 
-                    : 'Sin Turno Activo Abierto',
+                    ? '${tr('active_shift_header')} #${_activeShift?.shiftNumber ?? '1'}' 
+                    : tr('no_active_shift'),
                 style: TextStyle(
                   fontWeight: FontWeight.bold,
                   color: isOpen ? Colors.green[900] : Colors.grey[800],
@@ -374,7 +372,7 @@ class _CashCutScreenState extends State<CashCutScreen> {
             TextButton.icon(
               onPressed: _openNewShift,
               icon: const Icon(Icons.add, size: 18),
-              label: const Text('Abrir Turno'),
+              label: Text(tr('open_shift')),
             ),
         ],
       ),
@@ -395,7 +393,7 @@ class _CashCutScreenState extends State<CashCutScreen> {
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Text(
-            'TOTAL RECAUDADO EN TURNO',
+            tr('total_collected_shift'),
             style: TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.bold,
@@ -459,7 +457,7 @@ class _CashCutScreenState extends State<CashCutScreen> {
           children: [
             Column(
               children: [
-                Text('Transacciones', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                Text(tr('transactions'), style: TextStyle(fontSize: 12, color: Colors.grey[600])),
                 const SizedBox(height: 4),
                 Text('${summary.totalTransactions}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               ],
@@ -467,18 +465,22 @@ class _CashCutScreenState extends State<CashCutScreen> {
             Container(height: 30, width: 1, color: Colors.grey[300]),
             Column(
               children: [
-                Text('Pendientes', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                Text(tr('pending'), style: TextStyle(fontSize: 12, color: Colors.grey[600])),
                 const SizedBox(height: 4),
                 Text(
                   '${summary.pendingTransactions}',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: summary.pendingTransactions > 0 ? Colors.orange[800] : Colors.grey[800]),
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: summary.pendingTransactions > 0 ? Colors.orange[800] : Colors.grey[800],
+                  ),
                 ),
               ],
             ),
             Container(height: 30, width: 1, color: Colors.grey[300]),
             Column(
               children: [
-                Text('Ticket Promed.', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                Text(tr('avg_ticket'), style: TextStyle(fontSize: 12, color: Colors.grey[600])),
                 const SizedBox(height: 4),
                 Text(_formatCurrency(summary.averageTicket), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               ],
@@ -494,9 +496,9 @@ class _CashCutScreenState extends State<CashCutScreen> {
       return Card(
         elevation: 1,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        child: const Padding(
-          padding: EdgeInsets.all(16.0),
-          child: Text('No hay registro de propinas por mesero en este corte.', style: TextStyle(color: Colors.grey)),
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Text(tr('no_tips_breakdown'), style: const TextStyle(color: Colors.grey)),
         ),
       );
     }
@@ -509,13 +511,13 @@ class _CashCutScreenState extends State<CashCutScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Row(
+            Row(
               children: [
-                Icon(Icons.volunteer_activism_rounded, color: Color(0xFF2563EB), size: 22),
-                SizedBox(width: 8),
+                const Icon(Icons.volunteer_activism_rounded, color: Color(0xFF2563EB), size: 22),
+                const SizedBox(width: 8),
                 Text(
-                  'Desglose de Propinas por Mesero',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  tr('waiter_tips_breakdown'),
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 ),
               ],
             ),
@@ -527,7 +529,7 @@ class _CashCutScreenState extends State<CashCutScreen> {
               separatorBuilder: (context, index) => const Divider(height: 1),
               itemBuilder: (context, index) {
                 final waiter = cashCutData[index];
-                final waiterName = waiter['waiter_name']?.toString() ?? 'Sin Mesero';
+                final waiterName = waiter['waiter_name']?.toString() ?? tr('waiter_service');
                 final totalSales = (waiter['total_sales'] as num?)?.toDouble() ?? 0.0;
                 final cashTips = (waiter['cash_tips'] as num?)?.toDouble() ?? 0.0;
                 final cardTips = (waiter['card_tips'] as num?)?.toDouble() ?? 0.0;
@@ -540,7 +542,7 @@ class _CashCutScreenState extends State<CashCutScreen> {
                     style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                   ),
                   subtitle: Text(
-                    'Ventas cobradas: \$${totalSales.toStringAsFixed(2)}',
+                    '${tr('sales_charged')}: \$${totalSales.toStringAsFixed(2)}',
                     style: TextStyle(fontSize: 12, color: Colors.grey[700]),
                   ),
                   trailing: Column(
@@ -548,11 +550,11 @@ class _CashCutScreenState extends State<CashCutScreen> {
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
                       Text(
-                        'Efectivo: \$${cashTips.toStringAsFixed(2)}',
+                        '${tr('cash')}: \$${cashTips.toStringAsFixed(2)}',
                         style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.green),
                       ),
                       Text(
-                        'Tarjeta: \$${cardTips.toStringAsFixed(2)}',
+                        '${tr('card')}: \$${cardTips.toStringAsFixed(2)}',
                         style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.blue),
                       ),
                     ],
@@ -573,15 +575,15 @@ class _CashCutScreenState extends State<CashCutScreen> {
 
     if (_difference == 0) {
       color = Colors.green[700]!;
-      title = 'CUADRE EXACTO';
+      title = tr('exact_balance');
       icon = Icons.check_circle;
     } else if (_difference > 0) {
       color = Colors.blue[800]!;
-      title = 'SOBRANTE DE CAJA: +${_formatCurrency(_difference)}';
+      title = '${tr('cash_overage')} +${_formatCurrency(_difference)}';
       icon = Icons.trending_up;
     } else {
       color = Colors.red[700]!;
-      title = 'FALTANTE DE CAJA: -${_formatCurrency(_difference.abs())}';
+      title = '${tr('cash_shortage')} -${_formatCurrency(_difference.abs())}';
       icon = Icons.warning_amber_rounded;
     }
 

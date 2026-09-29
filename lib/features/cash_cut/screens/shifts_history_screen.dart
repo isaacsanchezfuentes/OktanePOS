@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:oktane_pos/core/localization/app_locale.dart';
 import '../models/shift_model.dart';
 import '../models/cash_cut_model.dart';
 import '../services/shift_service.dart';
@@ -52,7 +53,7 @@ class _ShiftsHistoryScreenState extends State<ShiftsHistoryScreen> {
       if (mounted) {
         setState(() => _isLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error cargando historial de turnos: $e'), backgroundColor: Colors.red),
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
         );
       }
     }
@@ -98,9 +99,7 @@ class _ShiftsHistoryScreenState extends State<ShiftsHistoryScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            success 
-                ? '✅ Re-impresión de Corte Z enviada exitosamente' 
-                : '⚠️ No se pudo enviar a la impresora (Verifique conexión)',
+            success ? tr('reprint_z_success') : tr('reprint_z_error'),
           ),
           backgroundColor: success ? Colors.green[700] : Colors.orange[800],
         ),
@@ -134,30 +133,30 @@ class _ShiftsHistoryScreenState extends State<ShiftsHistoryScreen> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    'Detalle Turno #${shift.shiftNumber ?? '---'}',
+                    '${tr('shift_detail')} #${shift.shiftNumber ?? '---'}',
                     style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                   ),
                   if (shift.isModified)
                     Chip(
                       avatar: const Icon(Icons.verified, size: 14, color: Colors.purple),
-                      label: const Text('AUDITADO / MODIFICADO', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.purple)),
+                      label: Text(tr('audited'), style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.purple)),
                       backgroundColor: Colors.purple[50],
                       side: BorderSide(color: Colors.purple[200]!),
                     ),
                 ],
               ),
               const SizedBox(height: 12),
-              _buildDetailRow('Apertura:', _formatDate(shift.openedAt)),
-              _buildDetailRow('Cierre:', _formatDate(shift.closedAt)),
+              _buildDetailRow(tr('opening'), _formatDate(shift.openedAt)),
+              _buildDetailRow(tr('closing'), _formatDate(shift.closedAt)),
               const Divider(height: 20),
-              _buildDetailRow('Fondo Inicial:', _formatCurrency(shift.initialCash)),
-              _buildDetailRow('Ventas Efectivo:', _formatCurrency(shift.cashSales)),
-              _buildDetailRow('Ventas Tarjeta:', _formatCurrency(shift.cardSales)),
-              _buildDetailRow('Ventas QR:', _formatCurrency(shift.qrSales)),
+              _buildDetailRow(tr('initial_float'), _formatCurrency(shift.initialCash)),
+              _buildDetailRow(tr('cash_sales'), _formatCurrency(shift.cashSales)),
+              _buildDetailRow(tr('card_sales'), _formatCurrency(shift.cardSales)),
+              _buildDetailRow(tr('qr_sales'), _formatCurrency(shift.qrSales)),
               const Divider(height: 20),
-              _buildDetailRow('Ventas Totales:', _formatCurrency(shift.totalSales), isBold: true),
-              _buildDetailRow('Efectivo Contado:', _formatCurrency(shift.drawerCounted), isBold: true),
-              _buildDetailRow('Diferencia:', _formatCurrency(shift.difference), isBold: true),
+              _buildDetailRow(tr('total_sales'), _formatCurrency(shift.totalSales), isBold: true),
+              _buildDetailRow(tr('counted_cash'), _formatCurrency(shift.drawerCounted), isBold: true),
+              _buildDetailRow(tr('difference'), _formatCurrency(shift.difference), isBold: true),
               const SizedBox(height: 20),
               ElevatedButton.icon(
                 onPressed: () {
@@ -165,7 +164,7 @@ class _ShiftsHistoryScreenState extends State<ShiftsHistoryScreen> {
                   _reprintShiftTicket(shift);
                 },
                 icon: const Icon(Icons.print_outlined),
-                label: const Text('REIMPRIMIR CORTE Z', style: TextStyle(fontWeight: FontWeight.bold)),
+                label: Text(tr('reprint_z_cut'), style: const TextStyle(fontWeight: FontWeight.bold)),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.indigo[800],
                   foregroundColor: Colors.white,
@@ -203,29 +202,34 @@ class _ShiftsHistoryScreenState extends State<ShiftsHistoryScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Historial y Auditoría de Turnos', style: TextStyle(fontWeight: FontWeight.bold)),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            tooltip: 'Actualizar',
-            onPressed: _loadShiftsHistory,
+    return ListenableBuilder(
+      listenable: AppLocale.instance,
+      builder: (context, _) {
+        return Scaffold(
+          appBar: AppBar(
+            title: Text(tr('shifts_audit_history'), style: const TextStyle(fontWeight: FontWeight.bold)),
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.refresh),
+                tooltip: tr('refresh'),
+                onPressed: _loadShiftsHistory,
+              ),
+            ],
           ),
-        ],
-      ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _shifts.isEmpty
-              ? _buildEmptyState()
-              : ListView.builder(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: _shifts.length,
-                  itemBuilder: (context, index) {
-                    final shift = _shifts[index];
-                    return _buildShiftCard(shift);
-                  },
-                ),
+          body: _isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : _shifts.isEmpty
+                  ? _buildEmptyState()
+                  : ListView.builder(
+                      padding: const EdgeInsets.all(16),
+                      itemCount: _shifts.length,
+                      itemBuilder: (context, index) {
+                        final shift = _shifts[index];
+                        return _buildShiftCard(shift);
+                      },
+                    ),
+        );
+      },
     );
   }
 
@@ -236,13 +240,13 @@ class _ShiftsHistoryScreenState extends State<ShiftsHistoryScreen> {
         children: [
           Icon(Icons.history_toggle_off, size: 70, color: Colors.grey[400]),
           const SizedBox(height: 12),
-          const Text(
-            'No hay turnos cerrados registrados',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+          Text(
+            tr('no_closed_shifts'),
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 4),
           Text(
-            'Los cierres Z aparecerán aquí tras realizar corte de caja',
+            tr('z_cuts_appear_here'),
             style: TextStyle(fontSize: 12, color: Colors.grey[600]),
           ),
         ],
@@ -252,14 +256,14 @@ class _ShiftsHistoryScreenState extends State<ShiftsHistoryScreen> {
 
   Widget _buildShiftCard(ShiftModel shift) {
     Color diffColor = Colors.green[700]!;
-    String diffText = 'Cuadre Exacto (\$0.00)';
+    String diffText = '${tr('exact_balance')} (\$0.00)';
 
     if (shift.difference > 0) {
       diffColor = Colors.blue[800]!;
-      diffText = 'Sobrante +${_formatCurrency(shift.difference)}';
+      diffText = '${tr('cash_overage')} +${_formatCurrency(shift.difference)}';
     } else if (shift.difference < 0) {
       diffColor = Colors.red[700]!;
-      diffText = 'Faltante -${_formatCurrency(shift.difference.abs())}';
+      diffText = '${tr('cash_shortage')} -${_formatCurrency(shift.difference.abs())}';
     }
 
     return Card(
@@ -274,7 +278,6 @@ class _ShiftsHistoryScreenState extends State<ShiftsHistoryScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Header Row: Turno #, Dates & Audit Badge
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -288,7 +291,7 @@ class _ShiftsHistoryScreenState extends State<ShiftsHistoryScreen> {
                           border: Border.all(color: Colors.indigo[200]!),
                         ),
                         child: Text(
-                          'Turno #${shift.shiftNumber ?? '---'}',
+                          '${tr('shift_num')} #${shift.shiftNumber ?? '---'}',
                           style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.indigo),
                         ),
                       ),
@@ -307,16 +310,14 @@ class _ShiftsHistoryScreenState extends State<ShiftsHistoryScreen> {
                         borderRadius: BorderRadius.circular(6),
                         border: Border.all(color: Colors.purple[200]!),
                       ),
-                      child: const Text(
-                        'AUDITADO',
-                        style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.purple),
+                      child: Text(
+                        tr('audited'),
+                        style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.purple),
                       ),
                     ),
                 ],
               ),
               const SizedBox(height: 12),
-
-              // Total Sales
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -338,15 +339,13 @@ class _ShiftsHistoryScreenState extends State<ShiftsHistoryScreen> {
                 ],
               ),
               const SizedBox(height: 10),
-
-              // Compact Breakdown
               Row(
                 children: [
-                  _buildCompactChip('Efectivo', shift.cashSales, Colors.green),
+                  _buildCompactChip(tr('cash'), shift.cashSales, Colors.green),
                   const SizedBox(width: 6),
-                  _buildCompactChip('Tarjeta', shift.cardSales, Colors.blue),
+                  _buildCompactChip(tr('card'), shift.cardSales, Colors.blue),
                   const SizedBox(width: 6),
-                  _buildCompactChip('QR', shift.qrSales, Colors.purple),
+                  _buildCompactChip(tr('qr_code'), shift.qrSales, Colors.purple),
                 ],
               ),
             ],

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:oktane_pos/core/localization/app_locale.dart';
 import '../models/zone_model.dart';
 import '../models/table_model.dart';
 import '../services/table_service.dart';
@@ -56,7 +57,7 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
   String? _pendingChargeId;
   List<Map<String, dynamic>> _dispatchedItems = [];
   OrderViewMode _viewMode = OrderViewMode.split;
-  String _selectedCategory = 'Todos';
+  String _selectedCategoryKey = 'Todos';
 
   @override
   void initState() {
@@ -173,20 +174,20 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
     final bool? confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Row(
+        title: Row(
           children: [
-            Icon(Icons.warning_amber_rounded, color: Colors.red),
-            SizedBox(width: 8),
-            Text('¿Retirar producto?', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            const Icon(Icons.warning_amber_rounded, color: Colors.red),
+            const SizedBox(width: 8),
+            Text(tr('remove_product_title'), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
           ],
         ),
-        content: Text('¿Deseas eliminar "$name" de la cuenta de la mesa?'),
+        content: Text('${tr('remove_product_confirm')} "$name" ${tr('from_table_bill')}'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(tr('cancel'))),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red[700], foregroundColor: Colors.white),
-            child: const Text('Eliminar'),
+            child: Text(tr('delete')),
           ),
         ],
       ),
@@ -213,14 +214,13 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
       return '$qPrefix${e['name']} (\$${(e['price'] as num).toDouble().toStringAsFixed(1)})';
     }).toList();
 
-    final String tableLabel = 'Mesa #${_currentTable.tableNumber}';
+    final String tableLabel = '${tr('table')} #${_currentTable.tableNumber}';
     final String newConcept = '$tableLabel - Ronda: ${itemStrs.join(', ')}';
 
     try {
       final supa = Supabase.instance.client;
 
       if (newTotal > 0 && _pendingChargeId != null) {
-        // Update charge in Supabase
         await supa.from('charges').update({
           'amount': newTotal,
           'concept': newConcept,
@@ -237,12 +237,11 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('🗑️ "$name" retirado de la cuenta de Mesa #${_currentTable.tableNumber}'),
+            content: Text('🗑️ "$name" - ${tr('table')} #${_currentTable.tableNumber}'),
             backgroundColor: Colors.orange[800],
           ),
         );
       } else {
-        // newTotal == 0: Cancel charge and liberate table in Supabase
         if (_pendingChargeId != null) {
           await supa.from('charges').update({
             'status': 'cancelled',
@@ -271,12 +270,11 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('🧹 Todos los productos fueron retirados. Mesa #${_currentTable.tableNumber} liberada.'),
+            content: Text('🧹 ${tr('table')} #${_currentTable.tableNumber} ${tr('table_available')}'),
             backgroundColor: Colors.green[800],
           ),
         );
 
-        // Pop back to map screen with table in green
         Navigator.pop(context);
       }
     } catch (e) {
@@ -302,20 +300,20 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
       final bool? confirm = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
-          title: const Row(
+          title: Row(
             children: [
-              Icon(Icons.warning_amber_rounded, color: Colors.orange),
-              SizedBox(width: 8),
-              Text('Ítems sin enviar', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              const Icon(Icons.warning_amber_rounded, color: Colors.orange),
+              const SizedBox(width: 8),
+              Text(tr('unsent_items_title'), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
             ],
           ),
-          content: const Text('Tiene productos en la ronda actual sin enviar a cocina. ¿Desea descartarlos y cambiar de mesa?'),
+          content: Text(tr('unsent_items_desc')),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(tr('cancel'))),
             ElevatedButton(
               onPressed: () => Navigator.pop(ctx, true),
               style: ElevatedButton.styleFrom(backgroundColor: Colors.orange[800], foregroundColor: Colors.white),
-              child: const Text('Descartar y Cambiar'),
+              child: Text(tr('discard_and_switch')),
             ),
           ],
         ),
@@ -392,7 +390,7 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
           children: [
             const Icon(Icons.person_pin, color: Colors.indigo),
             const SizedBox(width: 8),
-            Flexible(child: Text('PIN de $newName', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold))),
+            Flexible(child: Text('${tr('waiter_pin_title')} $newName', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold))),
           ],
         ),
         content: Form(
@@ -400,7 +398,7 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text('Ingrese el PIN para transferir la atención de $activeUserEmail a $newName.'),
+              Text('${tr('enter_pin_transfer')} $activeUserEmail ${tr('to')} $newName.'),
               const SizedBox(height: 12),
               TextFormField(
                 controller: pinCtrl,
@@ -408,17 +406,17 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
                 obscureText: true,
                 maxLength: 4,
                 autofocus: true,
-                decoration: const InputDecoration(
-                  labelText: 'PIN de Mesero',
-                  border: OutlineInputBorder(),
+                decoration: InputDecoration(
+                  labelText: tr('waiter_pin_label'),
+                  border: const OutlineInputBorder(),
                 ),
-                validator: (v) => (v == null || v.trim().length < 4) ? '4 dígitos requeridos' : null,
+                validator: (v) => (v == null || v.trim().length < 4) ? tr('pin_required') : null,
               ),
             ],
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(tr('cancel'))),
           ElevatedButton(
             onPressed: () async {
               if (!formKey.currentState!.validate()) return;
@@ -427,7 +425,7 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
                 Navigator.pop(ctx, isValid);
               }
             },
-            child: const Text('Confirmar Transferencia'),
+            child: Text(tr('confirm_transfer')),
           ),
         ],
       ),
@@ -439,11 +437,11 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
         _selectedWaiterId = newId;
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('✅ Atención de mesa transferida a $newName'), backgroundColor: Colors.green[700]),
+        SnackBar(content: Text('✅ ${tr('transfer_success')} $newName'), backgroundColor: Colors.green[700]),
       );
     } else if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('❌ Transferencia cancelada: PIN incorrecto'), backgroundColor: Colors.red),
+        SnackBar(content: Text('❌ ${tr('transfer_canceled_pin')}'), backgroundColor: Colors.red),
       );
     }
   }
@@ -452,7 +450,6 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
     final resultItem = await ItemPreAddDialog.show(context, menuItem: item);
     if (resultItem == null || !mounted) return;
 
-    // Auto-clear search field and unfocus keyboard
     _searchFieldController?.clear();
     FocusScope.of(context).unfocus();
 
@@ -486,7 +483,6 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
 
     final conceptFinal = 'Ronda: ${itemDescriptions.join(', ')}';
 
-    // 1. Await Supabase DB persistence
     await _tableService.addTicketToTable(
       _currentZone.id,
       _currentTable.id,
@@ -496,7 +492,6 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
       waiterName: currentWaiterName,
     );
 
-    // 2. Clear local draft and capture tray
     _tableService.clearTableDraft(_currentTable.id);
 
     if (mounted) {
@@ -506,7 +501,6 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
       });
     }
 
-    // 3. Reload fresh live table charge from Supabase
     await _loadLiveTableCharge();
 
     widget.onTableUpdated?.call();
@@ -519,7 +513,7 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
               const Text('👨‍🍳 ', style: TextStyle(fontSize: 20)),
               Expanded(
                 child: Text(
-                  'Comanda enviada a cocina exitosamente en Mesa #${_currentTable.tableNumber}',
+                  '${tr('order_sent_kitchen_success')} ${tr('table')} #${_currentTable.tableNumber}',
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
               ),
@@ -534,7 +528,6 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
   }
 
   void _proceedToConsolidatedCharge() {
-    // If there are pending new items, auto-save them first
     if (_newRoundItems.isNotEmpty) {
       _sendNewRoundToKitchen();
     }
@@ -548,7 +541,7 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
       waiterDetails.add('$label: ${_formatCurrency(amt)}');
     }
 
-    final conceptFinal = 'Mesa #${_currentTable.tableNumber} - Consumo Consolidado [${waiterDetails.join(', ')}]';
+    final conceptFinal = '${tr('table')} #${_currentTable.tableNumber} - Consumo Consolidado [${waiterDetails.join(', ')}]';
 
     Navigator.push(
       context,
@@ -574,8 +567,8 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
 
     if (!isConnected && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('⚠️ Impresora Bluetooth no conectada. Configure en Ajustes.'),
+        SnackBar(
+          content: Text(tr('printer_not_connected_alert')),
           backgroundColor: Colors.orange,
         ),
       );
@@ -597,7 +590,7 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
     allItems.addAll(_newRoundItems);
 
     final success = await printerService.printTablePreCheckTicket(
-      tableName: 'Mesa #${_currentTable.tableNumber}',
+      tableName: '${tr('table')} #${_currentTable.tableNumber}',
       zoneName: _currentZone.name,
       waiterName: waiterName,
       items: allItems,
@@ -608,14 +601,14 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
       if (success) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('🖨️ Pre-cuenta impresa para Mesa #${_currentTable.tableNumber}'),
+            content: Text('🖨️ ${tr('precheck_printed')} ${tr('table')} #${_currentTable.tableNumber}'),
             backgroundColor: Colors.green[700],
           ),
         );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('❌ Error al despachar impresión a la impresora térmica'),
+          SnackBar(
+            content: Text('❌ ${tr('print_error')}'),
             backgroundColor: Colors.red,
           ),
         );
@@ -623,93 +616,60 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
     }
   }
 
-  Future<void> _openTableSwitcherModal() async {
-    final zones = _tableService.getZones();
-    _loadAllTables();
-
-    await showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => ConstrainedBox(
-        constraints: BoxConstraints(
-          maxHeight: MediaQuery.of(ctx).size.height * 0.8,
-        ),
-        child: Container(
-          decoration: const BoxDecoration(
-            color: Color(0xFF0F172A),
-            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-          ),
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
+  Future<void> _openTableSwitcher() async {
+    if (_newRoundItems.isNotEmpty) {
+      final bool? confirm = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Row(
             children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    '🪑 Seleccionar / Cambiar Mesa',
-                    style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.close, color: Colors.white),
-                    onPressed: () => Navigator.pop(ctx),
-                  ),
-                ],
-              ),
-              const Divider(color: Color(0xFF334155)),
-              Expanded(
-                child: SingleChildScrollView(
-                  physics: const BouncingScrollPhysics(),
-                  child: Column(
-                    children: zones.map((z) {
-                      final tablesInZone = _allTables.where((t) => t.zoneId == z.id).toList();
-                      return Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 8.0),
-                            child: Text(
-                              '📍 ${z.name}',
-                              style: const TextStyle(color: Color(0xFF00E5FF), fontWeight: FontWeight.bold, fontSize: 14),
-                            ),
-                          ),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: tablesInZone.map((t) {
-                              final isSelected = t.id == _currentTable.id;
-                              final isOccupied = t.status == 'occupied' || t.activeTickets.isNotEmpty;
-                              return ChoiceChip(
-                                label: Text('Mesa #${t.tableNumber}'),
-                                labelStyle: TextStyle(
-                                  color: isSelected ? Colors.white : (isOccupied ? Colors.orange[200] : Colors.green[200]),
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 12,
-                                ),
-                                selected: isSelected,
-                                selectedColor: const Color(0xFF1D4ED8),
-                                backgroundColor: isOccupied ? const Color(0xFF451A03) : const Color(0xFF064E3B),
-                                onSelected: (val) {
-                                  Navigator.pop(ctx);
-                                  _changeTable(t, z);
-                                },
-                              );
-                            }).toList(),
-                          ),
-                          const SizedBox(height: 12),
-                        ],
-                      );
-                    }).toList(),
-                  ),
-                ),
-              ),
+              const Icon(Icons.warning_amber_rounded, color: Colors.orange),
+              const SizedBox(width: 8),
+              Text(tr('unsent_items_title'), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
             ],
           ),
+          content: Text(tr('unsent_items_desc')),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(tr('cancel'))),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.orange[800], foregroundColor: Colors.white),
+              child: Text(tr('discard_and_switch')),
+            ),
+          ],
+        ),
+      );
+
+      if (confirm != true) return;
+    }
+
+    final result = await Navigator.push<Map<String, dynamic>>(
+      context,
+      MaterialPageRoute(
+        builder: (context) => TablesMapScreen(
+          tableService: _tableService,
+          isSelectionMode: true,
         ),
       ),
     );
+
+    if (result != null && mounted) {
+      final RestaurantTableModel? newTable = result['table'] as RestaurantTableModel?;
+      ZoneModel? newZone = result['zone'] as ZoneModel?;
+      if (newTable != null) {
+        if (newZone == null) {
+          for (final z in _tableService.getZones()) {
+            if (z.id == newTable.zoneId) {
+              newZone = z;
+              break;
+            }
+          }
+        }
+        if (newZone != null) {
+          _changeTable(newTable, newZone);
+        }
+      }
+    }
   }
 
   Widget _buildWaiterBar(String activeUserName, List<Map<String, String>> waitersList) {
@@ -720,9 +680,9 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
         children: [
           const Icon(Icons.person_pin, color: Color(0xFFF97316), size: 20),
           const SizedBox(width: 8),
-          const Text(
-            'Mesero a cargo:',
-            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w900, color: Color(0xFFF97316)),
+          Text(
+            tr('waiter_in_charge'),
+            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w900, color: Color(0xFFF97316)),
           ),
           const SizedBox(width: 8),
           Expanded(
@@ -777,15 +737,25 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
   }
 
   Widget _buildOneTouchMenu(List<MenuItemModel> menuItems) {
-    final List<String> categories = ['Todos', 'Bebidas', 'Alimentos', 'Postres', 'Otros'];
-    final filteredItems = _selectedCategory == 'Todos'
+    final List<Map<String, String>> categories = [
+      {'key': 'Todos', 'label': tr('all')},
+      {'key': 'Bebidas', 'label': tr('drinks')},
+      {'key': 'Alimentos', 'label': tr('food')},
+      {'key': 'Postres', 'label': tr('desserts')},
+      {'key': 'Otros', 'label': tr('others')},
+    ];
+
+    final filteredItems = _selectedCategoryKey == 'Todos'
         ? menuItems
-        : menuItems.where((i) => i.category.toLowerCase() == _selectedCategory.toLowerCase() || i.name.toLowerCase().contains(_selectedCategory.toLowerCase())).toList();
+        : menuItems.where((i) {
+            final cat = i.category.toLowerCase();
+            final sel = _selectedCategoryKey.toLowerCase();
+            return cat == sel || cat.contains(sel) || i.name.toLowerCase().contains(sel);
+          }).toList();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Category Chips Bar
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
           color: const Color(0xFF1E293B),
@@ -793,12 +763,12 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
             scrollDirection: Axis.horizontal,
             child: Row(
               children: categories.map((cat) {
-                final isSelected = _selectedCategory == cat;
+                final isSelected = _selectedCategoryKey == cat['key'];
                 return Padding(
                   padding: const EdgeInsets.only(right: 6.0),
                   child: ChoiceChip(
                     label: Text(
-                      cat,
+                      cat['label']!,
                       style: TextStyle(
                         color: isSelected ? Colors.white : const Color(0xFFCBD5E1),
                         fontWeight: FontWeight.bold,
@@ -809,7 +779,7 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
                     selectedColor: const Color(0xFF1D4ED8),
                     backgroundColor: const Color(0xFF334155),
                     onSelected: (val) {
-                      if (val) setState(() => _selectedCategory = cat);
+                      if (val) setState(() => _selectedCategoryKey = cat['key']!);
                     },
                   ),
                 );
@@ -817,13 +787,12 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
             ),
           ),
         ),
-        // Product Grid
         Expanded(
           child: Container(
             color: const Color(0xFFF1F5F9),
             child: filteredItems.isEmpty
-                ? const Center(
-                    child: Text('No hay productos en esta categoría', style: TextStyle(color: Color(0xFF475569), fontSize: 12)),
+                ? Center(
+                    child: Text(tr('no_products_category'), style: const TextStyle(color: Color(0xFF475569), fontSize: 12)),
                   )
                 : GridView.builder(
                     padding: const EdgeInsets.all(6),
@@ -915,13 +884,13 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text(
-                  '📋 Detalle Completo de Comanda',
-                  style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                Text(
+                  '📋 ${tr('full_order_detail')}',
+                  style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
                 ),
                 ActionChip(
                   avatar: const Icon(Icons.arrow_forward_ios_rounded, size: 12, color: Colors.white),
-                  label: const Text('Volver al catálogo', style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+                  label: Text(tr('back_to_catalog'), style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
                   backgroundColor: const Color(0xFF1D4ED8),
                   onPressed: () {
                     setState(() {
@@ -952,7 +921,7 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
                 focusNode: focusNode,
                 style: const TextStyle(fontSize: 12),
                 decoration: InputDecoration(
-                  hintText: '🔍 Buscar...',
+                  hintText: '🔍 ${tr('search')}',
                   prefixIcon: const Icon(Icons.search, color: Colors.blue, size: 18),
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
                   contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -972,10 +941,10 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Flexible(
+                    Flexible(
                       child: Text(
-                        'Por Enviar',
-                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: TableTheme.textPrimary),
+                        tr('pending_to_send'),
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: TableTheme.textPrimary),
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
@@ -995,10 +964,10 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
                           borderRadius: BorderRadius.circular(8),
                           border: Border.all(color: Colors.grey[300]!),
                         ),
-                        child: const Center(
+                        child: Center(
                           child: Text(
-                            'Sin ítems por enviar',
-                            style: TextStyle(fontSize: 11, color: Colors.grey),
+                            tr('no_items_pending'),
+                            style: const TextStyle(fontSize: 11, color: Colors.grey),
                           ),
                         ),
                       )
@@ -1027,7 +996,7 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
                                 overflow: TextOverflow.ellipsis,
                               ),
                               subtitle: Text(
-                                '\$$price c/u',
+                                '\$$price ${tr('each_unit')}',
                                 style: const TextStyle(fontSize: 10, color: Colors.grey),
                               ),
                               trailing: Row(
@@ -1055,9 +1024,9 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text(
-                      'Servidas',
-                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: TableTheme.textPrimary),
+                    Text(
+                      tr('served_rounds'),
+                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: TableTheme.textPrimary),
                     ),
                     if (_previousRoundsTotal > 0)
                       Text(
@@ -1115,10 +1084,10 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
                           borderRadius: BorderRadius.circular(8),
                           border: Border.all(color: Colors.grey[300]!),
                         ),
-                        child: const Center(
+                        child: Center(
                           child: Text(
-                            'Sin rondas servidas',
-                            style: TextStyle(fontSize: 11, color: Colors.grey),
+                            tr('no_served_rounds'),
+                            style: const TextStyle(fontSize: 11, color: Colors.grey),
                           ),
                         ),
                       ),
@@ -1144,7 +1113,7 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text('TOTAL:', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey)),
+                  Text(tr('total_label'), style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey)),
                   Text(
                     _formatCurrency(_grandTotal),
                     style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.green),
@@ -1160,8 +1129,8 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
                     child: OutlinedButton.icon(
                       onPressed: _newRoundItems.isNotEmpty ? _sendNewRoundToKitchen : null,
                       icon: const Icon(Icons.send_rounded, size: 16),
-                      label: const FittedBox(
-                        child: Text('MANDAR PREPARACIÓN', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 10)),
+                      label: FittedBox(
+                        child: Text(tr('send_to_kitchen'), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 10)),
                       ),
                       style: OutlinedButton.styleFrom(
                         side: BorderSide(color: _newRoundItems.isNotEmpty ? Colors.indigo : Colors.grey[300]!),
@@ -1179,7 +1148,7 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
                       onPressed: _grandTotal > 0 ? _proceedToConsolidatedCharge : null,
                       icon: const Icon(Icons.point_of_sale, size: 16),
                       label: FittedBox(
-                        child: Text('COBRAR (${_formatCurrency(_grandTotal)})', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 10)),
+                        child: Text('${tr('charge')} (${_formatCurrency(_grandTotal)})', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 10)),
                       ),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.green[700],
@@ -1201,125 +1170,130 @@ class _TableOrderDetailScreenState extends State<TableOrderDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final menuItems = _menuService.getMenuItems(activeOnly: true);
-    final activeUser = Supabase.instance.client.auth.currentUser;
-    final activeUserName = activeUser?.email?.split('@').first ?? 'Mesero Activo';
+    return ListenableBuilder(
+      listenable: AppLocale.instance,
+      builder: (context, _) {
+        final menuItems = _menuService.getMenuItems(activeOnly: true);
+        final activeUser = Supabase.instance.client.auth.currentUser;
+        final activeUserName = activeUser?.email?.split('@').first ?? 'Mesero Activo';
 
-    final waitersList = [
-      {'id': activeUser?.id ?? 'waiter-1', 'name': activeUserName},
-      {'id': 'waiter-2', 'name': 'Carlos (Mesero 1)'},
-      {'id': 'waiter-3', 'name': 'Ana (Mesero 2)'},
-      {'id': 'waiter-4', 'name': 'Sofía (Mesero 3)'},
-    ];
+        final waitersList = [
+          {'id': activeUser?.id ?? 'waiter-1', 'name': activeUserName},
+          {'id': 'waiter-2', 'name': 'Carlos (${tr('waiter_service')} 1)'},
+          {'id': 'waiter-3', 'name': 'Ana (${tr('waiter_service')} 2)'},
+          {'id': 'waiter-4', 'name': 'Sofía (${tr('waiter_service')} 3)'},
+        ];
 
-    return Scaffold(
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        foregroundColor: const Color(0xFF0D47A1),
-        elevation: 1,
-        titleSpacing: 8,
-        title: InkWell(
-          onTap: _openTableSwitcherModal,
-          borderRadius: BorderRadius.circular(8),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.table_restaurant, color: Color(0xFF0D47A1), size: 20),
-                const SizedBox(width: 6),
-                Flexible(
-                  child: Text(
-                    'Mesa #${_currentTable.tableNumber} (${_currentZone.name})',
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xFF0D47A1)),
-                    overflow: TextOverflow.ellipsis,
-                  ),
+        return Scaffold(
+          appBar: AppBar(
+            backgroundColor: Colors.white,
+            foregroundColor: const Color(0xFF0D47A1),
+            elevation: 1,
+            titleSpacing: 8,
+            title: InkWell(
+              onTap: _openTableSwitcher,
+              borderRadius: BorderRadius.circular(8),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.table_restaurant, color: Color(0xFF0D47A1), size: 20),
+                    const SizedBox(width: 6),
+                    Flexible(
+                      child: Text(
+                        '${tr('table')} #${_currentTable.tableNumber} (${_currentZone.name})',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xFF0D47A1)),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    const Icon(Icons.swap_horiz, size: 18, color: Color(0xFF0D47A1)),
+                  ],
                 ),
-                const SizedBox(width: 4),
-                const Icon(Icons.swap_horiz, size: 18, color: Color(0xFF0D47A1)),
-              ],
+              ),
             ),
-          ),
-        ),
-        actions: [
-          Stack(
-            alignment: Alignment.center,
-            children: [
+            actions: [
+              Stack(
+                alignment: Alignment.center,
+                children: [
+                  IconButton(
+                    icon: Icon(
+                      Icons.receipt_long_rounded,
+                      color: _viewMode == OrderViewMode.fullDetail ? const Color(0xFF1D4ED8) : const Color(0xFF0D47A1),
+                    ),
+                    tooltip: tr('view_full_detail'),
+                    onPressed: () {
+                      setState(() {
+                        _viewMode = OrderViewMode.fullDetail;
+                      });
+                    },
+                  ),
+                  if (_newRoundItems.isNotEmpty)
+                    Positioned(
+                      right: 6,
+                      top: 6,
+                      child: CircleAvatar(
+                        radius: 8,
+                        backgroundColor: Colors.red,
+                        child: Text(
+                          '${_newRoundItems.length}',
+                          style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
               IconButton(
                 icon: Icon(
-                  Icons.receipt_long_rounded,
-                  color: _viewMode == OrderViewMode.fullDetail ? const Color(0xFF1D4ED8) : const Color(0xFF0D47A1),
+                  _viewMode == OrderViewMode.fullCatalog ? Icons.vertical_split_rounded : Icons.grid_view_rounded,
+                  color: const Color(0xFF0D47A1),
                 ),
-                tooltip: 'Ver Detalle Completo',
+                tooltip: _viewMode == OrderViewMode.fullCatalog ? tr('split_view') : tr('full_catalog'),
                 onPressed: () {
                   setState(() {
-                    _viewMode = OrderViewMode.fullDetail;
+                    _viewMode = (_viewMode == OrderViewMode.fullCatalog)
+                        ? OrderViewMode.split
+                        : OrderViewMode.fullCatalog;
                   });
                 },
               ),
-              if (_newRoundItems.isNotEmpty)
-                Positioned(
-                  right: 6,
-                  top: 6,
-                  child: CircleAvatar(
-                    radius: 8,
-                    backgroundColor: Colors.red,
-                    child: Text(
-                      '${_newRoundItems.length}',
-                      style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                ),
+              IconButton(
+                icon: const Icon(Icons.print_outlined, color: Color(0xFF0D47A1)),
+                tooltip: tr('print_precheck'),
+                onPressed: _printPreCheckTicket,
+              ),
             ],
           ),
-          IconButton(
-            icon: Icon(
-              _viewMode == OrderViewMode.fullCatalog ? Icons.vertical_split_rounded : Icons.grid_view_rounded,
-              color: const Color(0xFF0D47A1),
-            ),
-            tooltip: _viewMode == OrderViewMode.fullCatalog ? 'Vista Compartida' : 'Catálogo Completo',
-            onPressed: () {
-              setState(() {
-                _viewMode = (_viewMode == OrderViewMode.fullCatalog)
-                    ? OrderViewMode.split
-                    : OrderViewMode.fullCatalog;
-              });
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.print_outlined, color: Color(0xFF0D47A1)),
-            tooltip: 'Imprimir Pre-cuenta',
-            onPressed: _printPreCheckTicket,
-          ),
-        ],
-      ),
-      resizeToAvoidBottomInset: false,
-      body: SafeArea(
-        child: Column(
-          children: [
-            _buildWaiterBar(activeUserName, waitersList),
-            Expanded(
-              child: _viewMode == OrderViewMode.fullCatalog
-                  ? _buildOneTouchMenu(menuItems)
-                  : _viewMode == OrderViewMode.fullDetail
-                      ? _buildOrderListColumn(menuItems, false)
-                      : Row(
-                          children: [
-                            Expanded(
-                              flex: 5,
-                              child: _buildOrderListColumn(menuItems, true),
+          resizeToAvoidBottomInset: false,
+          body: SafeArea(
+            child: Column(
+              children: [
+                _buildWaiterBar(activeUserName, waitersList),
+                Expanded(
+                  child: _viewMode == OrderViewMode.fullCatalog
+                      ? _buildOneTouchMenu(menuItems)
+                      : _viewMode == OrderViewMode.fullDetail
+                          ? _buildOrderListColumn(menuItems, false)
+                          : Row(
+                              children: [
+                                Expanded(
+                                  flex: 5,
+                                  child: _buildOrderListColumn(menuItems, true),
+                                ),
+                                const VerticalDivider(width: 1, thickness: 1, color: Color(0xFFCBD5E1)),
+                                Expanded(
+                                  flex: 7,
+                                  child: _buildOneTouchMenu(menuItems),
+                                ),
+                              ],
                             ),
-                            const VerticalDivider(width: 1, thickness: 1, color: Color(0xFFCBD5E1)),
-                            Expanded(
-                              flex: 7,
-                              child: _buildOneTouchMenu(menuItems),
-                            ),
-                          ],
-                        ),
+                ),
+              ],
             ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 }

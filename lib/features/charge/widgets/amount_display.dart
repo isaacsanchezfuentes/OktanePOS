@@ -13,8 +13,8 @@ enum LcdTheme {
 
 /// Tipografías digitales disponibles para el monto
 enum LcdTypography {
-  segmentMatrix, // Estilo 1: Matriz segmentada / bloques con cero cortado
-  modernItalic,  // Estilo 2: Itálica gruesa azul profundo con ghost inclinado
+  segmentMatrix, // Bloques segmentados con cero cortado
+  modernItalic,  // Itálica gruesa en azul marino profundo
   classicMono,   // Monospace estándar
 }
 
@@ -54,7 +54,7 @@ class AmountDisplay extends StatelessWidget {
     this.typographyOverride,
   });
 
-  /// Alterna cíclicamente entre los colores disponibles (Verde Menta, Oliva, Ámbar)
+  /// Alterna cíclicamente entre los colores disponibles
   static void cycleTheme() {
     switch (themeNotifier.value) {
       case LcdTheme.paleMint:
@@ -73,6 +73,7 @@ class AmountDisplay extends StatelessWidget {
   static void cycleTypography() {
     switch (typographyNotifier.value) {
       case LcdTypography.segmentMatrix:
+        themeNotifier.value = LcdTheme.classicOlive;
         typographyNotifier.value = LcdTypography.modernItalic;
         break;
       case LcdTypography.modernItalic:
@@ -134,13 +135,12 @@ class AmountDisplay extends StatelessWidget {
             break;
         }
 
-        // 2. Configuración tipográfica exacta según el modo seleccionado
+        // 2. Configuración tipográfica
         late final TextStyle mainAmountStyle;
         late final TextStyle ghostAmountStyle;
 
         switch (currentTypo) {
           case LcdTypography.segmentMatrix:
-            // Estilo 1 (Arriba): Bloques monoespaciados, negro carbón con cero cortado
             mainAmountStyle = TextStyle(
               fontFamily: 'Courier',
               fontFamilyFallback: const ['monospace'],
@@ -166,13 +166,12 @@ class AmountDisplay extends StatelessWidget {
             break;
 
           case LcdTypography.modernItalic:
-            // Estilo 2 (Abajo): Itálica gruesa en azul marino profundo con ghost inclinado
             mainAmountStyle = const TextStyle(
               fontFamily: 'sans-serif',
               fontSize: 48,
               fontWeight: FontWeight.w900,
               fontStyle: FontStyle.italic,
-              color: Color(0xFF0C1B6E), // Azul índigo de la captura inferior
+              color: Color(0xFF0C1B6E),
               letterSpacing: 1.0,
             );
             ghostAmountStyle = TextStyle(
@@ -186,7 +185,6 @@ class AmountDisplay extends StatelessWidget {
             break;
 
           case LcdTypography.classicMono:
-            // Estilo Clásico: Monospace estándar recto
             mainAmountStyle = TextStyle(
               fontFamily: 'monospace',
               fontSize: 46,
@@ -281,16 +279,16 @@ class AmountDisplay extends StatelessWidget {
                   ),
                 ),
 
-                // Contenido derecho: Encabezado, Desglose, Monto y Switch USD
+                // Contenido derecho
                 Expanded(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
+                      // Encabezado superior
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          // Tocar aquí cambia el color del display
                           GestureDetector(
                             onTap: cycleTheme,
                             child: Row(
@@ -338,88 +336,118 @@ class AmountDisplay extends StatelessWidget {
                         ],
                       ),
 
-                      // Desglose del pedido dentro del LCD
-                      if (hasItems)
-                        Container(
-                          constraints: const BoxConstraints(maxHeight: 70),
-                          margin: const EdgeInsets.symmetric(vertical: 4.0),
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withOpacity(0.06),
-                            borderRadius: BorderRadius.circular(6),
-                            border: Border.all(color: defaultTextColor.withOpacity(0.2)),
-                          ),
-                          child: ListView.builder(
-                            shrinkWrap: true,
-                            padding: EdgeInsets.zero,
-                            itemCount: orderItems!.length,
-                            itemBuilder: (context, idx) {
-                              final it = orderItems![idx];
-                              final sub = ((it['subtotal'] ?? it['price']) as num).toDouble();
-                              final isHighlighted = idx == lastModifiedIndex;
+                      // BANDEJA DE DESGLOSE CON ALTURA FIJA (72 px)
+                      // Mantiene invariante la altura total del LCD para evitar brincos en la cuadrícula inferior
+                      Container(
+                        height: 72,
+                        margin: const EdgeInsets.symmetric(vertical: 4.0),
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.06),
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: defaultTextColor.withOpacity(0.18)),
+                        ),
+                        child: hasItems
+                            ? ListView.builder(
+                                physics: const BouncingScrollPhysics(),
+                                padding: EdgeInsets.zero,
+                                itemCount: orderItems!.length,
+                                itemBuilder: (context, idx) {
+                                  final it = orderItems![idx];
+                                  final sub = ((it['subtotal'] ?? it['price']) as num).toDouble();
+                                  final isHighlighted = idx == lastModifiedIndex;
 
-                              return AnimatedContainer(
-                                duration: const Duration(milliseconds: 350),
-                                margin: const EdgeInsets.symmetric(vertical: 1.0),
-                                padding: const EdgeInsets.symmetric(horizontal: 4.0, vertical: 1.5),
-                                decoration: BoxDecoration(
-                                  color: isHighlighted
-                                      ? defaultTextColor.withOpacity(0.18)
-                                      : Colors.transparent,
-                                  borderRadius: BorderRadius.circular(3),
-                                ),
-                                child: Row(
-                                  children: [
-                                    Expanded(
+                                  return AnimatedContainer(
+                                    duration: const Duration(milliseconds: 350),
+                                    margin: const EdgeInsets.symmetric(vertical: 1.0),
+                                    padding: const EdgeInsets.symmetric(horizontal: 4.0, vertical: 1.5),
+                                    decoration: BoxDecoration(
+                                      color: isHighlighted
+                                          ? defaultTextColor.withOpacity(0.18)
+                                          : Colors.transparent,
+                                      borderRadius: BorderRadius.circular(3),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Expanded(
+                                          child: Text(
+                                            '${it['quantity']}x ${it['name']}',
+                                            style: TextStyle(
+                                              fontFamily: 'monospace',
+                                              fontSize: 11,
+                                              fontWeight: isHighlighted ? FontWeight.w900 : FontWeight.bold,
+                                              color: defaultTextColor,
+                                            ),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                        Text(
+                                          '\$${sub.toStringAsFixed(2)}',
+                                          style: TextStyle(
+                                            fontFamily: 'monospace',
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w900,
+                                            color: defaultTextColor,
+                                          ),
+                                        ),
+                                        if (onRemoveItem != null) ...[
+                                          const SizedBox(width: 6),
+                                          InkWell(
+                                            onTap: () => onRemoveItem!(idx),
+                                            child: const Icon(Icons.close, size: 14, color: Colors.redAccent),
+                                          ),
+                                        ],
+                                      ],
+                                    ),
+                                  );
+                                },
+                              )
+                            : (expression != null && expression!.isNotEmpty)
+                                ? Align(
+                                    alignment: Alignment.centerRight,
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6.0),
                                       child: Text(
-                                        '${it['quantity']}x ${it['name']}',
+                                        expression!,
                                         style: TextStyle(
                                           fontFamily: 'monospace',
-                                          fontSize: 11,
-                                          fontWeight: isHighlighted ? FontWeight.w900 : FontWeight.bold,
-                                          color: defaultTextColor,
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.bold,
+                                          color: defaultTextColor.withOpacity(0.75),
                                         ),
-                                        maxLines: 1,
+                                        maxLines: 2,
                                         overflow: TextOverflow.ellipsis,
                                       ),
                                     ),
-                                    Text(
-                                      '\$${sub.toStringAsFixed(2)}',
-                                      style: TextStyle(
-                                        fontFamily: 'monospace',
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w900,
-                                        color: defaultTextColor,
-                                      ),
+                                  )
+                                : Center(
+                                    child: Row(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        Icon(
+                                          Icons.receipt_long_outlined,
+                                          size: 14,
+                                          color: defaultTextColor.withOpacity(0.25),
+                                        ),
+                                        const SizedBox(width: 6),
+                                        Text(
+                                          AppLocale.instance.isSpanish
+                                              ? 'Sin consumos en orden'
+                                              : 'No items in order',
+                                          style: TextStyle(
+                                            fontFamily: 'monospace',
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w700,
+                                            color: defaultTextColor.withOpacity(0.30),
+                                          ),
+                                        ),
+                                      ],
                                     ),
-                                    if (onRemoveItem != null) ...[
-                                      const SizedBox(width: 6),
-                                      InkWell(
-                                        onTap: () => onRemoveItem!(idx),
-                                        child: const Icon(Icons.close, size: 14, color: Colors.redAccent),
-                                      ),
-                                    ],
-                                  ],
-                                ),
-                              );
-                            },
-                          ),
-                        ),
+                                  ),
+                      ),
 
-                      if (expression != null && expression!.isNotEmpty)
-                        Text(
-                          expression!,
-                          style: TextStyle(
-                            fontFamily: 'monospace',
-                            fontSize: 13,
-                            fontWeight: FontWeight.bold,
-                            color: defaultTextColor.withOpacity(0.70),
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-
-                      // Tocar el monto alterna entre las tipografías
+                      // Monto Principal
                       GestureDetector(
                         onTap: cycleTypography,
                         child: FittedBox(
@@ -441,18 +469,20 @@ class AmountDisplay extends StatelessWidget {
                         ),
                       ),
 
-                      if (isUsd)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 2.0),
-                          child: Text(
-                            '1 USD = \$${currency.effectiveUsdRate.toStringAsFixed(2)} MXN',
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w800,
-                              color: defaultTextColor.withOpacity(0.85),
-                            ),
-                          ),
-                        ),
+                      // Línea fija para tasa de cambio USD (evita variaciones verticales)
+                      SizedBox(
+                        height: 14,
+                        child: isUsd
+                            ? Text(
+                                '1 USD = \$${currency.effectiveUsdRate.toStringAsFixed(2)} MXN',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w800,
+                                  color: defaultTextColor.withOpacity(0.85),
+                                ),
+                              )
+                            : null,
+                      ),
                     ],
                   ),
                 ),

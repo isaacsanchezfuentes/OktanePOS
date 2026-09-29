@@ -10,7 +10,6 @@ import '../widgets/item_pre_add_dialog.dart';
 import 'charges_history_screen.dart';
 import '../../printer/screens/printer_settings_screen.dart';
 import '../../cash_cut/services/shift_service.dart';
-import '../../tables/theme/table_theme.dart';
 import 'package:oktane_pos/core/localization/app_locale.dart';
 import 'package:oktane_pos/core/theme/theme_service.dart';
 import '../../tables/screens/tables_map_screen.dart';
@@ -70,9 +69,11 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
   int? _lastModifiedIndex;
   Timer? _highlightTimer;
 
-  // Filtro activo de categoría
-  String _selectedCategory = 'Todos';
-  final List<String> _categories = ['Todos', 'Bebidas', 'Alimentos', 'Postres', 'Otros'];
+  // Memoria del total de la comanda y abonos parciales realizados
+  double _tableTotal = 0.0;
+  final List<double> _paidPartialAmounts = [];
+
+  String _selectedCategoryKey = 'Todos';
 
   @override
   void initState() {
@@ -85,6 +86,8 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
     if (widget.initialAmount != null && widget.initialAmount! > 0) {
       _amount = widget.initialAmount!;
       _rawInput = widget.initialAmount!.toStringAsFixed(2);
+      _tableTotal = widget.initialAmount!;
+      _calculatorExpression = 'Cuenta Total (\$${_tableTotal.toStringAsFixed(2)})';
     }
     if (widget.initialConcept != null && widget.initialConcept!.isNotEmpty) {
       _conceptController.text = widget.initialConcept!;
@@ -92,6 +95,20 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
     if (widget.tableName != null && widget.tableName!.isNotEmpty) {
       _selectedTableLabel = widget.tableName!;
     }
+  }
+
+  double get _currentTableTotal {
+    if (_tableTotal > 0) return _tableTotal;
+    if (_pendingOrderItems.isNotEmpty) {
+      return _pendingOrderItems.fold(0.0, (sum, it) => sum + ((it['subtotal'] ?? it['price']) as num).toDouble());
+    }
+    return 0.0;
+  }
+
+  double get _remainingTableBalance {
+    final totalPaid = _paidPartialAmounts.fold(0.0, (sum, amt) => sum + amt);
+    final rem = _currentTableTotal - totalPaid;
+    return rem > 0 ? rem : 0.0;
   }
 
   void _triggerHighlight(int index) {
@@ -173,14 +190,59 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
       _conceptController.clear();
       _notesController.clear();
       _pendingOrderItems.clear();
+      _paidPartialAmounts.clear();
+      _tableTotal = widget.initialAmount ?? 0.0;
       _lastModifiedIndex = null;
     });
   }
 
   void _handleKeyTap(String key) {
     setState(() {
+      // 1. Borrar / Revertir último abono si no pasó
       if (key == 'CLEAR' || key == 'C' || key == 'CA') {
+        if (_rawInput != '0' && _rawInput != _remainingTableBalance.toStringAsFixed(2)) {
+          _amount = 0.0;
+          _rawInput = '0';
+          _calculatorExpression = '';
+          return;
+        }
+
+        // Si ya estaba en 0 o en el saldo y hay abonos previos, deshace el último cobro
+        if (_paidPartialAmounts.isNotEmpty) {
+          final lastPaid = _paidPartialAmounts.removeLast();
+          final rem = _remainingTableBalance;
+          _amount = rem;
+          _rawInput = rem.toStringAsFixed(2);
+          final totalPaid = _paidPartialAmounts.fold(0.0, (s, a) => s + a);
+          _calculatorExpression = totalPaid > 0
+              ? 'Total \$${_currentTableTotal.toStringAsFixed(2)} - Pagos \$${totalPaid.toStringAsFixed(2)}'
+              : 'Cuenta Total (\$${_currentTableTotal.toStringAsFixed(2)})';
+
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('↩️ ${tr('partial_payment_reverted')} \$${lastPaid.toStringAsFixed(2)} MXN'),
+              backgroundColor: Colors.orange[800],
+              duration: const Duration(seconds: 2),
+            ),
+          );
+          return;
+        }
+
         _resetKeypad();
+        return;
+      }
+
+      // 2. Botón CUENTA TOTAL (antes ×10)
+      if (key == 'TOTAL' || key == 'CUENTA TOTAL' || key == 'TOTAL MESA' || key == 'CUENTA\nTOTAL' || key == '×10') {
+        final rem = _remainingTableBalance;
+        _amount = rem;
+        _rawInput = rem.toStringAsFixed(2);
+        final totalPaid = _paidPartialAmounts.fold(0.0, (sum, amt) => sum + amt);
+        if (totalPaid > 0) {
+          _calculatorExpression = 'Total \$${_currentTableTotal.toStringAsFixed(2)} - Pagos \$${totalPaid.toStringAsFixed(2)}';
+        } else {
+          _calculatorExpression = 'Cuenta Total (\$${_currentTableTotal.toStringAsFixed(2)})';
+        }
         return;
       }
 
@@ -205,13 +267,6 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
           _amount = _lastAnswer!;
           _calculatorExpression += ' Ans';
         }
-        return;
-      }
-
-      if (key == '×10') {
-        _amount = _amount * 10.0;
-        _rawInput = _amount.toStringAsFixed(2);
-        _calculatorExpression += ' ×10';
         return;
       }
 
@@ -249,7 +304,7 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
     String normalizedExpr = fullExpr;
     if (_lastAnswer != null) {
       normalizedExpr = normalizedExpr.replaceAll(
-        RegExp(r'Ans(\s*\([\d\.]+\))?'),
+        RegExp(r'Ans(\s*\([\d.]+\))?'),
         _lastAnswer!.toStringAsFixed(2),
       );
     }
@@ -326,6 +381,7 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
     for (final item in _pendingOrderItems) {
       sum += (item['subtotal'] as num?)?.toDouble() ?? 0.0;
     }
+    _tableTotal = sum;
     _amount = sum;
     _rawInput = sum.toStringAsFixed(2);
   }
@@ -336,7 +392,7 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
 
     for (final z in _tableService.getZones()) {
       for (final t in _tableService.getTablesByZone(z.id)) {
-        final label = 'Mesa #${t.tableNumber} (${z.name})';
+        final label = '${tr('table')} #${t.tableNumber} (${z.name})';
         if (label == _selectedTableLabel) {
           targetTable = t;
           targetZone = z;
@@ -401,14 +457,14 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
       builder: (context) => AlertDialog(
         backgroundColor: const Color(0xFF1E293B),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Row(
+        title: Row(
           children: [
-            Icon(Icons.lock_clock, color: Colors.orange, size: 28),
-            SizedBox(width: 8),
+            const Icon(Icons.lock_clock, color: Colors.orange, size: 28),
+            const SizedBox(width: 8),
             Expanded(
               child: Text(
-                'Apertura de Turno Requerida',
-                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                tr('shift_required_title'),
+                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
               ),
             ),
           ],
@@ -417,22 +473,22 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Para realizar cobros o comandas es obligatorio abrir un turno de caja.',
-              style: TextStyle(color: Color(0xFFCBD5E1), fontSize: 13),
+            Text(
+              tr('shift_required_desc'),
+              style: const TextStyle(color: Color(0xFFCBD5E1), fontSize: 13),
             ),
             const SizedBox(height: 16),
             TextField(
               controller: initialCashController,
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
               style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-              decoration: const InputDecoration(
-                labelText: 'Fondo Inicial de Caja',
-                labelStyle: TextStyle(color: Color(0xFF94A3B8)),
+              decoration: InputDecoration(
+                labelText: tr('initial_cash_label'),
+                labelStyle: const TextStyle(color: Color(0xFF94A3B8)),
                 prefixText: '\$ ',
-                prefixStyle: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: Color(0xFF475569))),
-                focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: Color(0xFF38BDF8))),
+                prefixStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                enabledBorder: const OutlineInputBorder(borderSide: BorderSide(color: Color(0xFF475569))),
+                focusedBorder: const OutlineInputBorder(borderSide: BorderSide(color: Color(0xFF38BDF8))),
               ),
             ),
           ],
@@ -440,7 +496,7 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancelar', style: TextStyle(color: Color(0xFF94A3B8))),
+            child: Text(tr('cancel'), style: const TextStyle(color: Color(0xFF94A3B8))),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
@@ -456,12 +512,12 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
               } catch (e) {
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Error abriendo turno: $e'), backgroundColor: Colors.red),
+                    SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
                   );
                 }
               }
             },
-            child: const Text('Abrir Turno', style: TextStyle(fontWeight: FontWeight.bold)),
+            child: Text(tr('open_shift'), style: const TextStyle(fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -479,8 +535,8 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
     if (widget.tableId == null) {
       for (final z in _tableService.getZones()) {
         for (final t in _tableService.getTablesByZone(z.id)) {
-          final label = 'Mesa #${t.tableNumber} (${z.name})';
-          if (label == _selectedTableLabel || _selectedTableLabel.contains('Mesa #${t.tableNumber}')) {
+          final label = '${tr('table')} #${t.tableNumber} (${z.name})';
+          if (label == _selectedTableLabel || _selectedTableLabel.contains('#${t.tableNumber}')) {
             tableId = t.id;
             zoneId = z.id;
             break;
@@ -510,7 +566,7 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
             const SizedBox(width: 8),
             Expanded(
               child: Text(
-                'Comanda enviada a preparación (\$${_amount.toStringAsFixed(2)} MXN) en $_selectedTableLabel',
+                '${tr('order_sent_alert')} (\$${_amount.toStringAsFixed(2)} MXN) - $_selectedTableLabel',
                 style: const TextStyle(fontWeight: FontWeight.bold),
               ),
             ),
@@ -539,22 +595,21 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
       if (!opened || !mounted) return;
     }
 
-    String conceptText = _conceptController.text.trim().isEmpty
-        ? 'Consumo mostrador'
+    String conceptText = _conceptController.text.trim().isEmpty 
+        ? tr('bar_counter') 
         : _conceptController.text.trim();
 
     if (_notesController.text.trim().isNotEmpty) {
       conceptText = '$conceptText (${_notesController.text.trim()})';
     }
 
-    if (_selectedTableLabel != 'Barra / Mostrador') {
+    if (_selectedTableLabel != tr('bar_counter') && _selectedTableLabel != 'Barra / Mostrador') {
       conceptText = '$_selectedTableLabel - $conceptText';
     }
 
     if (!mounted) return;
 
-    final currentWaiterName = _selectedWaiterName ??
-        (Supabase.instance.client.auth.currentUser?.email?.split('@').first ?? 'Mesero');
+    final currentWaiterName = _selectedWaiterName ?? (Supabase.instance.client.auth.currentUser?.email?.split('@').first ?? 'Mesero');
 
     final resultCharge = await PaymentMethodBottomSheet.show(
       context,
@@ -567,10 +622,15 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
 
     if (resultCharge != null && mounted) {
       final methodDisplay = resultCharge.paymentMethod == 'qr'
-          ? 'Ticket QR impreso'
+          ? tr('qr_ticket_printed')
           : resultCharge.paymentMethod == 'tarjeta'
-          ? 'Pago con tarjeta registrado'
-          : 'Pago en efectivo registrado';
+              ? tr('card_payment_registered')
+              : tr('cash_payment_registered');
+
+      // Registrar abono parcial en memoria
+      final double paidAmount = resultCharge.amount;
+      _paidPartialAmounts.add(paidAmount);
+      final double remaining = _remainingTableBalance;
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -579,7 +639,7 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
               const Icon(Icons.check_circle, color: Colors.white),
               const SizedBox(width: 8),
               Expanded(
-                child: Text('✅ $methodDisplay (\$${resultCharge.amount.toStringAsFixed(2)} MXN)'),
+                child: Text('✅ $methodDisplay (\$${paidAmount.toStringAsFixed(2)} MXN)'),
               ),
             ],
           ),
@@ -589,16 +649,26 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
         ),
       );
 
-      if (widget.tableId != null && widget.zoneId != null) {
-        try {
-          (widget.tableService ?? TableService()).clearAllTableTickets(widget.zoneId!, widget.tableId!);
-          widget.onPaymentSuccess?.call();
-        } catch (e) {
-          debugPrint('⚠️ Error liberando mesa tras pago: $e');
+      // Si ya no queda saldo pendiente, liberar mesa y cerrar
+      if (remaining <= 0.01) {
+        if (widget.tableId != null && widget.zoneId != null) {
+          try {
+            (widget.tableService ?? TableService()).clearAllTableTickets(widget.zoneId!, widget.tableId!);
+            widget.onPaymentSuccess?.call();
+          } catch (e) {
+            debugPrint('⚠️ Error liberando mesa tras pago: $e');
+          }
         }
+        _resetKeypad();
+      } else {
+        // Aún queda saldo pendiente por cobrar en la cuenta
+        setState(() {
+          _amount = remaining;
+          _rawInput = remaining.toStringAsFixed(2);
+          final totalPaid = _paidPartialAmounts.fold(0.0, (s, a) => s + a);
+          _calculatorExpression = 'Restante \$${remaining.toStringAsFixed(2)} (Pagado: \$${totalPaid.toStringAsFixed(2)})';
+        });
       }
-
-      _resetKeypad();
     }
   }
 
@@ -616,128 +686,130 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final activeUserEmail = Supabase.instance.client.auth.currentUser?.email;
-    final activeUserName = activeUserEmail != null && activeUserEmail.contains('@')
-        ? activeUserEmail.split('@').first
-        : 'cliente001';
+    return ListenableBuilder(
+      listenable: Listenable.merge([
+        AppLocale.instance,
+        ThemeService.instance,
+      ]),
+      builder: (context, _) {
+        final activeUserEmail = Supabase.instance.client.auth.currentUser?.email;
+        final activeUserName = activeUserEmail != null && activeUserEmail.contains('@')
+            ? activeUserEmail.split('@').first
+            : 'cliente001';
 
-    final List<Map<String, String>> waitersList = [
-      {'id': 'waiter-1', 'name': activeUserName},
-      {'id': 'waiter-2', 'name': 'Carlos (Mesero 1)'},
-      {'id': 'waiter-3', 'name': 'Sofía (Mesero 2)'},
-      {'id': 'waiter-4', 'name': 'Ana (Mesero 3)'},
-    ];
+        final List<Map<String, String>> waitersList = [
+          {'id': 'waiter-1', 'name': activeUserName},
+          {'id': 'waiter-2', 'name': 'Carlos (${tr('waiter_service')} 1)'},
+          {'id': 'waiter-3', 'name': 'Sofía (${tr('waiter_service')} 2)'},
+          {'id': 'waiter-4', 'name': 'Ana (${tr('waiter_service')} 3)'},
+        ];
 
-    final List<String> availableTables = ['Barra / Mostrador'];
-    for (final z in _tableService.getZones()) {
-      for (final t in _tableService.getTablesByZone(z.id)) {
-        availableTables.add('Mesa #${t.tableNumber} (${z.name})');
-      }
-    }
-    if (!availableTables.contains(_selectedTableLabel)) {
-      _selectedTableLabel = availableTables.first;
-    }
+        final List<String> availableTables = [tr('bar_counter')];
+        for (final z in _tableService.getZones()) {
+          for (final t in _tableService.getTablesByZone(z.id)) {
+            availableTables.add('${tr('table')} #${t.tableNumber} (${z.name})');
+          }
+        }
+        if (!availableTables.contains(_selectedTableLabel)) {
+          _selectedTableLabel = availableTables.first;
+        }
 
-    final List<MenuItemModel> menuItems = _menuService.getMenuItems(activeOnly: true);
+        final List<MenuItemModel> menuItems = _menuService.getMenuItems(activeOnly: true);
 
-    return Scaffold(
-      extendBodyBehindAppBar: true,
-      appBar: AppBar(
-        titleSpacing: 16,
-        flexibleSpace: Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [Color(0xFF3B3836), Color(0xFF4A4644)],
-            ),
-          ),
-        ),
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        title: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 140),
-          child: InkWell(
-            onTap: () {
-              setState(() {
-                _isScientificMode = !_isScientificMode;
-              });
-            },
-            borderRadius: BorderRadius.circular(6),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: _isScientificMode ? const Color(0xFF1D4ED8) : const Color(0xFF1E293B),
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(
-                  color: _isScientificMode ? const Color(0xFF60A5FA) : const Color(0xFF475569),
-                  width: 0.8,
+        return Scaffold(
+          extendBodyBehindAppBar: true,
+          appBar: AppBar(
+            titleSpacing: 16,
+            flexibleSpace: Container(
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [Color(0xFF3B3836), Color(0xFF4A4644)],
                 ),
               ),
-              child: FittedBox(
-                fit: BoxFit.scaleDown,
+            ),
+            backgroundColor: Colors.transparent,
+            elevation: 0,
+            title: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 140),
+              child: InkWell(
+                onTap: () {
+                  setState(() {
+                    _isScientificMode = !_isScientificMode;
+                  });
+                },
+                borderRadius: BorderRadius.circular(6),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: _isScientificMode ? const Color(0xFF1D4ED8) : const Color(0xFF1E293B),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(
+                      color: _isScientificMode ? const Color(0xFF60A5FA) : const Color(0xFF475569),
+                      width: 0.8,
+                    ),
+                  ),
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          _isScientificMode ? Icons.restaurant_menu_rounded : Icons.calculate_outlined,
+                          size: 14,
+                          color: _isScientificMode ? const Color(0xFF38BDF8) : const Color(0xFFF97316),
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          _isScientificMode ? tr('touch_menu') : tr('calculator'),
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            actions: [
+              Padding(
+                padding: const EdgeInsets.only(right: 16.0),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(
-                      _isScientificMode ? Icons.restaurant_menu_rounded : Icons.calculate_outlined,
-                      size: 14,
-                      color: _isScientificMode ? const Color(0xFF38BDF8) : const Color(0xFFF97316),
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      _isScientificMode ? 'Menú Táctil' : 'Calculadora',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w800,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 16.0),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(
-                      Icons.local_fire_department_rounded,
-                      size: 20,
-                      color: Color(0xFFF97316),
-                    ),
-                    const SizedBox(width: 4),
-                    RichText(
-                      text: const TextSpan(
-                        children: [
-                          TextSpan(
-                            text: 'Oktane ',
-                            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.local_fire_department_rounded,
+                          size: 20,
+                          color: Color(0xFFF97316),
+                        ),
+                        const SizedBox(width: 4),
+                        RichText(
+                          text: const TextSpan(
+                            children: [
+                              TextSpan(
+                                text: 'Oktane ',
+                                style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16),
+                              ),
+                              TextSpan(
+                                text: 'POS',
+                                style: TextStyle(color: Color(0xFF38BDF8), fontWeight: FontWeight.w900, fontSize: 16),
+                              ),
+                            ],
                           ),
-                          TextSpan(
-                            text: 'POS',
-                            style: TextStyle(color: Color(0xFF38BDF8), fontWeight: FontWeight.w900, fontSize: 16),
-                          ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
-                const SizedBox(width: 12),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 4),
-                  child: ListenableBuilder(
-                    listenable: AppLocale.instance,
-                    builder: (context, _) {
-                      final isEs = AppLocale.instance.currentLang == 'es';
-                      return InkWell(
+                    const SizedBox(width: 12),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      child: InkWell(
                         onTap: () => AppLocale.instance.toggle(),
                         borderRadius: BorderRadius.circular(6),
                         child: Container(
@@ -748,62 +820,67 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
                             border: Border.all(color: const Color(0xFF475569), width: 0.8),
                           ),
                           child: Text(
-                            isEs ? '🇲🇽 ES' : '🇺🇸 EN',
+                            AppLocale.instance.isSpanish ? '🇲🇽 ES' : '🇺🇸 EN',
                             style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Color(0xFFE2E8F0)),
                           ),
                         ),
-                      );
-                    },
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.settings_outlined, color: Color(0xFFE2E8F0)),
-                  tooltip: 'Ajustes',
-                  constraints: const BoxConstraints(),
-                  padding: const EdgeInsets.fromLTRB(4, 0, 0, 0),
-                  visualDensity: VisualDensity.compact,
-                  onPressed: () {
-                    Navigator.push(context, MaterialPageRoute(builder: (context) => const SettingsScreen()));
-                  },
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-      resizeToAvoidBottomInset: false,
-      body: OrientationBuilder(
-        builder: (context, orientation) {
-          final isLandscape = orientation == Orientation.landscape;
-
-          return Stack(
-            children: [
-              // Fondo de acero cepillado con centro elevado
-              Positioned.fill(
-                child: Transform.scale(
-                  scale: 1.15,
-                  child: Transform.translate(
-                    offset: const Offset(0, -50),
-                    child: Image.asset(
-                      'assets/images/faceplates/Gemini_Generated_Image_cpngq2cpngq2cpng.jpg',
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) {
-                        return Container(color: const Color(0xFF2D3033));
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.settings_outlined, color: Color(0xFFE2E8F0)),
+                      tooltip: tr('settings'),
+                      constraints: const BoxConstraints(),
+                      padding: const EdgeInsets.fromLTRB(4, 0, 0, 0),
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () {
+                        Navigator.push(context, MaterialPageRoute(builder: (context) => const SettingsScreen()));
                       },
                     ),
-                  ),
+                  ],
                 ),
               ),
-
-              SafeArea(
-                child: isLandscape
-                    ? _buildLandscapeLayout(context, availableTables, activeUserName, waitersList, menuItems)
-                    : _buildPortraitLayout(context, availableTables, activeUserName, waitersList, menuItems),
-              ),
             ],
-          );
-        },
-      ),
+          ),
+          resizeToAvoidBottomInset: false,
+          body: OrientationBuilder(
+            builder: (context, orientation) {
+              final isLandscape = orientation == Orientation.landscape;
+
+              return Stack(
+                children: [
+                  Positioned.fill(
+                    child: Transform.scale(
+                      scale: ThemeService.instance.isRoseGold ? 1.35 : 1.15,
+                      child: Transform.translate(
+                        offset: ThemeService.instance.isRoseGold
+                            ? const Offset(0, 120)
+                            : const Offset(0, -50),
+                        child: Image.asset(
+                          ThemeService.instance.currentFaceplateAsset,
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) {
+                            return Container(
+                              color: ThemeService.instance.isRoseGold
+                                  ? const Color(0xFF5A3832)
+                                  : const Color(0xFF2D3033),
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  SafeArea(
+                    child: isLandscape
+                        ? _buildLandscapeLayout(context, availableTables, activeUserName, waitersList, menuItems)
+                        : _buildPortraitLayout(context, availableTables, activeUserName, waitersList, menuItems),
+                  ),
+                ],
+              );
+            },
+          ),
+        );
+      },
     );
   }
 
@@ -839,9 +916,9 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
         Expanded(
           child: _isScientificMode
               ? PosKeypad(
-            onKeyTap: _handleKeyTap,
-            isScientificMode: true,
-          )
+                  onKeyTap: _handleKeyTap,
+                  isScientificMode: true,
+                )
               : _buildProductSection(menuItems),
         ),
         _buildCobrarButton(ThemeService.instance),
@@ -875,7 +952,7 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
                     fontWeight: FontWeight.w800,
                   ),
                   decoration: InputDecoration(
-                    labelText: 'Mesa / Ubicación',
+                    labelText: tr('table_location'),
                     labelStyle: const TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w900,
@@ -884,7 +961,7 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
                     floatingLabelBehavior: FloatingLabelBehavior.always,
                     contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                     filled: true,
-                    fillColor: Colors.white.withOpacity(0.08),
+                    fillColor: Colors.white.withValues(alpha: 0.08),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
                       borderSide: const BorderSide(color: Color(0xFF0F172A), width: 1.3),
@@ -923,7 +1000,7 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
                     fontWeight: FontWeight.w800,
                   ),
                   decoration: InputDecoration(
-                    labelText: 'Mesero / Atención',
+                    labelText: tr('waiter_service'),
                     labelStyle: const TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w900,
@@ -932,7 +1009,7 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
                     floatingLabelBehavior: FloatingLabelBehavior.always,
                     contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                     filled: true,
-                    fillColor: Colors.white.withOpacity(0.08),
+                    fillColor: Colors.white.withValues(alpha: 0.08),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
                       borderSide: const BorderSide(color: Color(0xFF0F172A), width: 1.3),
@@ -993,17 +1070,17 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
                 child: InkWell(
                   onTap: _navigateToTableOrderDetail,
                   borderRadius: BorderRadius.circular(10),
-                  child: const Row(
+                  child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.assignment_outlined, size: 18, color: Colors.white),
-                      SizedBox(width: 8),
-                      Icon(Icons.delete_outline_rounded, size: 18, color: Colors.white),
-                      SizedBox(width: 10),
+                      const Icon(Icons.assignment_outlined, size: 18, color: Colors.white),
+                      const SizedBox(width: 8),
+                      const Icon(Icons.delete_outline_rounded, size: 18, color: Colors.white),
+                      const SizedBox(width: 10),
                       FittedBox(
                         child: Text(
-                          'TOMAR PEDIDO COMPLETO / VER MESA',
-                          style: TextStyle(
+                          tr('take_full_order_view_table'),
+                          style: const TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.w900,
                             letterSpacing: 0.6,
@@ -1091,9 +1168,9 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
                     fontWeight: FontWeight.w700,
                   ),
                   decoration: InputDecoration(
-                    hintText: 'Buscar producto en menú (ej. Tacos, ...)',
+                    hintText: tr('search_menu_hint'),
                     hintStyle: TextStyle(
-                      color: const Color(0xFF0F172A).withOpacity(0.65),
+                      color: const Color(0xFF0F172A).withValues(alpha: 0.65),
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
                     ),
@@ -1104,7 +1181,7 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
                     ),
                     contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                     filled: true,
-                    fillColor: Colors.white.withOpacity(0.12),
+                    fillColor: Colors.white.withValues(alpha: 0.12),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
                       borderSide: const BorderSide(color: Color(0xFF0F172A), width: 1.3),
@@ -1119,13 +1196,13 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
                     ),
                     suffixIcon: controller.text.isNotEmpty
                         ? InkWell(
-                      onTap: () {
-                        controller.clear();
-                        FocusScope.of(context).unfocus();
-                        setState(() {});
-                      },
-                      child: const Icon(Icons.clear, size: 16, color: Colors.black54),
-                    )
+                            onTap: () {
+                              controller.clear();
+                              FocusScope.of(context).unfocus();
+                              setState(() {});
+                            },
+                            child: const Icon(Icons.clear, size: 16, color: Colors.black54),
+                          )
                         : null,
                   ),
                   onChanged: (_) => setState(() {}),
@@ -1138,32 +1215,30 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
     );
   }
 
-  // SECCIÓN DE PRODUCTOS: ALINEACIÓN MILIMÉTRICA + TECLAS DERECHAS IDÉNTICAS A LA CALCULADORA
   Widget _buildProductSection(List<MenuItemModel> menuItems) {
-    final filteredItems = _selectedCategory == 'Todos'
+    final filteredItems = _selectedCategoryKey == 'Todos'
         ? menuItems
         : menuItems.where((m) {
-      final cat = m.category.toLowerCase();
-      final name = m.name.toLowerCase();
-      final sel = _selectedCategory.toLowerCase();
-      if (sel == 'bebidas') {
-        return cat.contains('beb') || name.contains('café') || name.contains('cerveza') || name.contains('refresco') || name.contains('agua');
-      } else if (sel == 'alimentos') {
-        return cat.contains('alim') || cat.contains('comid') || name.contains('taco') || name.contains('hamburguesa') || name.contains('pizza');
-      } else if (sel == 'postres') {
-        return cat.contains('postre') || name.contains('pastel') || name.contains('flan') || name.contains('helado') || name.contains('dulce');
-      } else if (sel == 'otros') {
-        final isKnown = name.contains('café') || name.contains('cerveza') || name.contains('refresco') || name.contains('taco') || name.contains('hamburguesa') || name.contains('pizza') || name.contains('pastel') || name.contains('flan');
-        return !isKnown && !cat.contains('beb') && !cat.contains('alim') && !cat.contains('postre');
-      }
-      return cat == sel;
-    }).toList();
+            final cat = m.category.toLowerCase();
+            final name = m.name.toLowerCase();
+            final sel = _selectedCategoryKey.toLowerCase();
+            if (sel == 'bebidas') {
+              return cat.contains('beb') || name.contains('café') || name.contains('cerveza') || name.contains('refresco') || name.contains('agua');
+            } else if (sel == 'alimentos') {
+              return cat.contains('alim') || cat.contains('comid') || name.contains('taco') || name.contains('hamburguesa') || name.contains('pizza');
+            } else if (sel == 'postres') {
+              return cat.contains('postre') || name.contains('pastel') || name.contains('flan') || name.contains('helado') || name.contains('dulce');
+            } else if (sel == 'otros') {
+              final isKnown = name.contains('café') || name.contains('cerveza') || name.contains('refresco') || name.contains('taco') || name.contains('hamburguesa') || name.contains('pizza') || name.contains('pastel') || name.contains('flan');
+              return !isKnown && !cat.contains('beb') && !cat.contains('alim') && !cat.contains('postre');
+            }
+            return cat == sel;
+          }).toList();
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 1.0),
       child: Column(
         children: [
-          // 1. Cuadrícula y Teclas Laterales sincronizadas
           Expanded(
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1173,13 +1248,11 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
                 ),
                 const SizedBox(width: 5),
 
-                // Columna derecha con las 3 teclas con el MISMO ESTILO EXACTO de la calculadora
                 SizedBox(
                   width: 52,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      // ⌫ Alineado exactamente con la Fila 1
                       Expanded(
                         child: _buildThinKeyButton(
                           child: const Icon(
@@ -1192,7 +1265,6 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
                       ),
                       const SizedBox(height: 5),
 
-                      // C Alineado exactamente con la Fila 2
                       Expanded(
                         child: _buildThinKeyButton(
                           child: const Text(
@@ -1208,7 +1280,6 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
                       ),
                       const SizedBox(height: 5),
 
-                      // ↵ Alineado exactamente con la Fila 3 (Verde salvia translúcido)
                       Expanded(
                         child: _buildThinKeyButton(
                           isEnter: true,
@@ -1228,7 +1299,6 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
           ),
           const SizedBox(height: 6),
 
-          // 2. Barra de Categorías a ANCHO COMPLETO
           _buildCategoryFilterBar(),
         ],
       ),
@@ -1236,11 +1306,19 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
   }
 
   Widget _buildCategoryFilterBar() {
+    final List<Map<String, String>> categoriesList = [
+      {'key': 'Todos', 'label': tr('all')},
+      {'key': 'Bebidas', 'label': tr('drinks')},
+      {'key': 'Alimentos', 'label': tr('food')},
+      {'key': 'Postres', 'label': tr('desserts')},
+      {'key': 'Otros', 'label': tr('others')},
+    ];
+
     return SizedBox(
       height: 36,
       child: Row(
-        children: _categories.map((cat) {
-          final isSelected = _selectedCategory == cat;
+        children: categoriesList.map((cat) {
+          final isSelected = _selectedCategoryKey == cat['key'];
           return Expanded(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 1.5),
@@ -1248,7 +1326,7 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
                 behavior: HitTestBehavior.opaque,
                 onTap: () {
                   setState(() {
-                    _selectedCategory = cat;
+                    _selectedCategoryKey = cat['key']!;
                   });
                 },
                 child: Container(
@@ -1256,15 +1334,15 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
                   decoration: BoxDecoration(
                     gradient: isSelected
                         ? const LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [Color(0xFF2563EB), Color(0xFF1D4ED8)],
-                    )
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [Color(0xFF2563EB), Color(0xFF1D4ED8)],
+                          )
                         : const LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [Color(0xFFF1F5F9), Color(0xFFCBD5E1)],
-                    ),
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [Color(0xFFF1F5F9), Color(0xFFCBD5E1)],
+                          ),
                     borderRadius: BorderRadius.circular(6),
                     border: Border.all(
                       color: isSelected ? const Color(0xFF93C5FD) : const Color(0xFF8492A6),
@@ -1275,7 +1353,7 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
                     ],
                   ),
                   child: Text(
-                    cat,
+                    cat['label']!,
                     style: TextStyle(
                       fontSize: 10.5,
                       fontWeight: isSelected ? FontWeight.w900 : FontWeight.w700,
@@ -1293,27 +1371,25 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
     );
   }
 
-  // BOTÓN IDÉNTICO AL DISEÑO DE TECLAS DE LA CALCULADORA CIENTÍFICA
   Widget _buildThinKeyButton({
     required Widget child,
     required VoidCallback onTap,
     bool isEnter = false,
   }) {
-    // Exactamente el mismo gradiente transparente biselado de pos_keypad.dart
     final gradient = LinearGradient(
       begin: Alignment.topLeft,
       end: Alignment.bottomRight,
       colors: isEnter
           ? [
-        const Color(0xFFB5C4AF).withOpacity(0.55), // Tinte verde salvia translúcido
-        const Color(0xFF8DA387).withOpacity(0.20),
-        const Color(0xFF5E7358).withOpacity(0.35),
-      ]
+              const Color(0xFFB5C4AF).withValues(alpha: 0.55),
+              const Color(0xFF8DA387).withValues(alpha: 0.20),
+              const Color(0xFF5E7358).withValues(alpha: 0.35),
+            ]
           : [
-        Colors.white.withOpacity(0.55), // Reflejo de luz superior izquierda
-        Colors.white.withOpacity(0.06), // Cuerpo transparente translúcido
-        Colors.black.withOpacity(0.22), // Sombra de bisel inferior derecha
-      ],
+              Colors.white.withValues(alpha: 0.55),
+              Colors.white.withValues(alpha: 0.06),
+              Colors.black.withValues(alpha: 0.22),
+            ],
       stops: const [0.0, 0.35, 1.0],
     );
 
@@ -1326,13 +1402,13 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
           borderRadius: BorderRadius.circular(7),
           border: Border.all(
             color: isEnter
-                ? const Color(0xFF5E7358).withOpacity(0.60)
-                : Colors.black.withOpacity(0.28),
+                ? const Color(0xFF5E7358).withValues(alpha: 0.60)
+                : Colors.black.withValues(alpha: 0.28),
             width: 1.0,
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.20),
+              color: Colors.black.withValues(alpha: 0.20),
               offset: const Offset(1.5, 2.0),
               blurRadius: 2.5,
             ),
@@ -1376,7 +1452,7 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
           itemBuilder: (context, index) {
             final item = items[index];
             final existing = _pendingOrderItems.firstWhere(
-                  (it) => it['id'] == item.id,
+              (it) => it['id'] == item.id,
               orElse: () => {},
             );
             final currentQty = existing.isNotEmpty ? (existing['quantity'] as num).toInt() : 0;
@@ -1509,9 +1585,9 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
                 flex: 5,
                 child: _isScientificMode
                     ? PosKeypad(
-                  onKeyTap: _handleKeyTap,
-                  isScientificMode: true,
-                )
+                        onKeyTap: _handleKeyTap,
+                        isScientificMode: true,
+                      )
                     : _buildProductSection(menuItems),
               ),
             ],
@@ -1545,24 +1621,24 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
           child: ElevatedButton.icon(
             onPressed: _amount > 0
                 ? () {
-              if (_pendingOrderItems.isEmpty) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Selecciona al menos un platillo o bebida del menú.'),
-                    backgroundColor: Colors.orange,
-                    duration: Duration(seconds: 2),
-                  ),
-                );
-                return;
-              }
-              _sendOrderToKitchen();
-            }
+                    if (_pendingOrderItems.isEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(tr('select_item_alert')),
+                          backgroundColor: Colors.orange,
+                          duration: const Duration(seconds: 2),
+                        ),
+                      );
+                      return;
+                    }
+                    _sendOrderToKitchen();
+                  }
                 : null,
             icon: const Icon(Icons.send_rounded, size: 14, color: Colors.white),
-            label: const FittedBox(
+            label: FittedBox(
               child: Text(
-                'MANDAR A PREPARACIÓN',
-                style: TextStyle(fontWeight: FontWeight.w900, fontSize: 11, letterSpacing: 0.5, color: Colors.white),
+                tr('send_to_kitchen'),
+                style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 11, letterSpacing: 0.5, color: Colors.white),
               ),
             ),
             style: ElevatedButton.styleFrom(
@@ -1617,7 +1693,7 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: const Color(0xFF5BCE50).withOpacity(animatedGlow),
+                    color: const Color(0xFF5BCE50).withValues(alpha: animatedGlow),
                     blurRadius: 12 * animatedGlow,
                     spreadRadius: 2 * animatedGlow,
                   ),
@@ -1628,7 +1704,7 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
                 icon: const Icon(Icons.shopping_cart_checkout_rounded, size: 20, color: Color(0xFF092606)),
                 label: FittedBox(
                   child: Text(
-                    'COBRAR ${_formatCurrency(_amount)}',
+                    '${tr('charge')} ${_formatCurrency(_amount)}',
                     style: const TextStyle(
                       fontFamily: 'monospace',
                       fontSize: 17,
@@ -1671,7 +1747,7 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
             icon: const Icon(Icons.shopping_cart_checkout_rounded, size: 20, color: Color(0x66152013)),
             label: FittedBox(
               child: Text(
-                'COBRAR \$0.00',
+                '${tr('charge')} \$0.00',
                 style: const TextStyle(
                   fontFamily: 'monospace',
                   fontSize: 17,

@@ -13,8 +13,9 @@ void main() {
       expect(tr('amount_to_charge'), 'Monto a cobrar');
       expect(tr('table_location'), 'Mesa / Ubicación');
       expect(tr('waiter_service'), 'Mesero / Atención');
-      expect(tr('view_table'), 'TOMAR PEDIDO COMPLETO / VER MESA');
-      expect(tr('send_kitchen'), 'MANDAR COCINA');
+      expect(tr('view_table'), 'Ver Mesa');
+      expect(tr('take_full_order_view_table'), 'TOMAR PEDIDO COMPLETO / VER MESA');
+      expect(tr('send_to_kitchen'), 'MANDAR A PREPARACIÓN');
       expect(tr('charge'), 'COBRAR');
 
       // Toggle to 'en'
@@ -29,9 +30,10 @@ void main() {
       expect(appLocale.currentLang, 'en');
       expect(tr('amount_to_charge'), 'Amount to charge');
       expect(tr('table_location'), 'Table / Location');
-      expect(tr('waiter_service'), 'Waiter / Server');
-      expect(tr('view_table'), 'FULL ORDER / VIEW TABLE');
-      expect(tr('send_kitchen'), 'SEND TO KITCHEN');
+      expect(tr('waiter_service'), 'Server / Attendant');
+      expect(tr('view_table'), 'View Table');
+      expect(tr('take_full_order_view_table'), 'TAKE FULL ORDER / VIEW TABLE');
+      expect(tr('send_to_kitchen'), 'SEND TO KITCHEN');
       expect(tr('charge'), 'CHARGE');
 
       // Toggle back to 'es'

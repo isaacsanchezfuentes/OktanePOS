@@ -1,19 +1,25 @@
-# Walkthrough - Critical UI Hotfix: Text Squishing & LCD Overlay (Steve Jobs Spec)
+# Walkthrough - Faceplate Finish Customization & Dynamic Theme Binding
 
-Se completó la **Corrección UI Crítica: Arreglo Definitivo de Texto Aplastado y Superposición LCD**.
+Se completó la **Integración de Acabado de Carátula (Faceplate Finish) y Selección en Ajustes**.
 
 ---
 
 ## Componentes Entregados
 
-### 1. Salto de Línea por Palabras (Word-Wrapping) Obligatorio (`quick_charge_screen.dart`)
-- [quick_charge_screen.dart](file:///C:/Users/PC/Shamanica/AndroidStudioProjects/oktane-pos/lib/features/charge/screens/quick_charge_screen.dart):
-  - El título de cada producto en la comanda está envuelto obligatoriamente en `Expanded(child: Text(..., maxLines: 2, overflow: TextOverflow.ellipsis))`.
-  - Los nombres largos realizan salto de línea limpio por palabras (word-wrapping), eliminando completamente la apilación vertical letra por letra.
+### 1. Claves de Localización ES / EN (`app_locale.dart`)
+- [app_locale.dart](file:///C:/Users/PC/Shamanica/AndroidStudioProjects/oktane-pos/lib/core/localization/app_locale.dart):
+  - Añadidas las claves `faceplate_finish`, `finish_industrial` y `finish_rose_gold` en español e inglés.
 
-### 2. Superposición de Matriz Digital LCD Identica (`amount_display.dart`)
-- [amount_display.dart](file:///C:/Users/PC/Shamanica/AndroidStudioProjects/oktane-pos/lib/features/charge/widgets/amount_display.dart):
-  - El texto fantasma `"888,888.88"` (`Colors.black.withValues(alpha: 0.08)`) y las cifras activas comparten **exactamente el mismo `TextStyle`** (`fontFamily: 'monospace'`, `fontSize: 42`, `fontWeight: FontWeight.w900`, `letterSpacing: -1`), alineados punto por punto en un `Stack`.
+### 2. Vinculación Dinámica en Pantalla Principal (`quick_charge_screen.dart`)
+- [quick_charge_screen.dart](file:///C:/Users/PC/Shamanica/AndroidStudioProjects/oktane-pos/lib/features/charge/screens/quick_charge_screen.dart):
+  - Configurado `Listenable.merge([AppLocale.instance, ThemeService.instance])` para reconstrucción instantánea al cambiar el acabado de la carátula o idioma.
+  - La imagen de fondo consume `ThemeService.instance.currentFaceplateAsset` con color de fallback dinámico `isRoseGold ? Color(0xFF5A3832) : Color(0xFF2D3033)`.
+
+### 3. Selector de Acabado Faceplate en Ajustes (`settings_screen.dart`)
+- [settings_screen.dart](file:///C:/Users/PC/Shamanica/AndroidStudioProjects/oktane-pos/lib/features/settings/screens/settings_screen.dart):
+  - Insertado el selector de acabado de carátula conectado a `AppThemeMode` con opciones:
+    * **Aluminio Grafito Clásico** (`AppThemeMode.slateIndustrial`)
+    * **Aluminio Cepillado Oro Rosa 24K** (`AppThemeMode.classicPink`)
 
 ---
 
@@ -24,4 +30,4 @@ Se completó la **Corrección UI Crítica: Arreglo Definitivo de Texto Aplastado
 
 ### Pruebas Unitarias (`flutter test`)
 - Comando: `flutter test test/features/`
-- Resultado: **`00:23 +51: All tests passed!`** (100% de 51 pruebas aprobadas).
+- Resultado: **`00:22 +51: All tests passed!`** (100% de 51 pruebas aprobadas).

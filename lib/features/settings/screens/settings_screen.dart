@@ -8,6 +8,7 @@ import '../../printer/screens/printer_settings_screen.dart';
 import '../../cash_cut/screens/shifts_history_screen.dart';
 import '../../cash_cut/services/shift_policy_service.dart';
 import 'package:oktane_pos/core/theme/theme_service.dart';
+import 'package:oktane_pos/core/localization/app_locale.dart';
 import 'package:oktane_pos/ui/screens/login_screen.dart';
 import 'menu_management_screen.dart';
 
@@ -159,7 +160,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ElevatedButton(
               onPressed: () async {
                 await _policyService.setPolicyMode(tempMode);
-                if (mounted) {
+                if (context.mounted) {
                   setState(() => _currentPolicyMode = tempMode);
                   Navigator.pop(ctx);
                   ScaffoldMessenger.of(context).showSnackBar(
@@ -249,12 +250,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String _getThemeName(AppThemeMode mode) {
     switch (mode) {
       case AppThemeMode.slateIndustrial:
-        return 'Slate Industrial (Titanio Cepillado)';
+        return tr('finish_industrial');
       case AppThemeMode.classicBlue:
         return 'Azul Clásico (Aluminio Anodizado)';
       case AppThemeMode.classicPink:
-        return 'Rosa Clásico (Aluminio Magenta)';
+        return tr('finish_rose_gold');
     }
+  }
+
+  Widget _buildSectionHeader(String title) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 8.0, bottom: 8.0),
+      child: Text(
+        title,
+        style: const TextStyle(
+          color: Color(0xFF94A3B8),
+          fontSize: 12,
+          fontWeight: FontWeight.bold,
+          letterSpacing: 0.5,
+        ),
+      ),
+    );
   }
 
   void _showThemeSelectionDialog() {
@@ -272,7 +288,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             RadioListTile<AppThemeMode>(
-              title: const Text('Slate Industrial (Titanio Cepillado)'),
+              title: Text(tr('finish_industrial')),
               value: AppThemeMode.slateIndustrial,
               groupValue: ThemeService.instance.currentTheme,
               onChanged: (val) {
@@ -296,7 +312,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               },
             ),
             RadioListTile<AppThemeMode>(
-              title: const Text('Rosa Clásico (Aluminio Magenta)'),
+              title: Text(tr('finish_rose_gold')),
               value: AppThemeMode.classicPink,
               groupValue: ThemeService.instance.currentTheme,
               onChanged: (val) {
@@ -310,7 +326,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cerrar')),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: Text(tr('cancel'))),
         ],
       ),
     );
@@ -329,7 +345,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
         content: const Text('¿Estás seguro de que deseas salir de la aplicación?'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: Text(tr('cancel'))),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
             onPressed: () async {
@@ -358,7 +374,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Configuración del Sistema', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: Text(tr('general_settings'), style: const TextStyle(fontWeight: FontWeight.bold)),
       ),
       body: ListView(
         padding: const EdgeInsets.all(16),
@@ -381,12 +397,62 @@ class _SettingsScreenState extends State<SettingsScreen> {
           // Theme Customization Section
           ListTile(
             leading: const Icon(Icons.palette, color: Colors.amber),
-            title: const Text('Personalización / Apariencia', style: TextStyle(fontWeight: FontWeight.bold)),
+            title: Text(tr('lcd_display_settings'), style: const TextStyle(fontWeight: FontWeight.bold)),
             subtitle: Text(_getThemeName(ThemeService.instance.currentTheme)),
             trailing: const Icon(Icons.chevron_right),
             onTap: _showThemeSelectionDialog,
           ),
           const Divider(),
+
+          // Selector de Acabado Faceplate
+          _buildSectionHeader(tr('faceplate_finish')),
+          Container(
+            decoration: BoxDecoration(
+              color: const Color(0xFF1E293B),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFF334155)),
+            ),
+            child: Column(
+              children: [
+                RadioListTile<AppThemeMode>(
+                  title: Text(
+                    tr('finish_industrial'),
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                  ),
+                  secondary: const Icon(Icons.shield_outlined, color: Color(0xFF94A3B8)),
+                  activeColor: const Color(0xFF38BDF8),
+                  value: AppThemeMode.slateIndustrial,
+                  groupValue: ThemeService.instance.currentTheme,
+                  onChanged: (val) {
+                    if (val != null) {
+                      setState(() {
+                        ThemeService.instance.setTheme(val);
+                      });
+                    }
+                  },
+                ),
+                const Divider(color: Color(0xFF334155), height: 1),
+                RadioListTile<AppThemeMode>(
+                  title: Text(
+                    tr('finish_rose_gold'),
+                    style: const TextStyle(color: Color(0xFFF7B1A5), fontWeight: FontWeight.bold, fontSize: 13),
+                  ),
+                  secondary: const Icon(Icons.circle, color: Color(0xFFE89E90)),
+                  activeColor: const Color(0xFFE89E90),
+                  value: AppThemeMode.classicPink,
+                  groupValue: ThemeService.instance.currentTheme,
+                  onChanged: (val) {
+                    if (val != null) {
+                      setState(() {
+                        ThemeService.instance.setTheme(val);
+                      });
+                    }
+                  },
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 20),
 
           // Menu Catalog Management
           ListTile(
@@ -407,7 +473,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           // Thermal Printer Settings
           ListTile(
             leading: const Icon(Icons.print, color: Colors.indigo),
-            title: const Text('Impresora Térmica Bluetooth', style: TextStyle(fontWeight: FontWeight.bold)),
+            title: Text(tr('printer_settings'), style: const TextStyle(fontWeight: FontWeight.bold)),
             subtitle: const Text('Escanear y conectar impresoras de recibos'),
             trailing: const Icon(Icons.chevron_right),
             onTap: () {
@@ -429,7 +495,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           // Shift Policy Settings
           ListTile(
             leading: const Icon(Icons.tune, color: Colors.blue),
-            title: const Text('Política de Turnos y Cierres', style: TextStyle(fontWeight: FontWeight.bold)),
+            title: Text(tr('shift_policy'), style: const TextStyle(fontWeight: FontWeight.bold)),
             subtitle: Text(_policyService.getModeDescription(_currentPolicyMode)),
             trailing: const Icon(Icons.chevron_right),
             onTap: _showPolicyDialog,
@@ -439,7 +505,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           // Shift Audit History
           ListTile(
             leading: const Icon(Icons.history, color: Colors.purple),
-            title: const Text('Historial y Auditoría de Turnos', style: TextStyle(fontWeight: FontWeight.bold)),
+            title: Text(tr('shifts_audit_history'), style: const TextStyle(fontWeight: FontWeight.bold)),
             subtitle: const Text('Ver cierres Z pasados y re-imprimir recibos'),
             trailing: const Icon(Icons.chevron_right),
             onTap: () {
