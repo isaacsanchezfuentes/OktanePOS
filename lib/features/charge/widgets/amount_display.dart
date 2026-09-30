@@ -141,15 +141,15 @@ class AmountDisplay extends StatelessWidget {
 
         switch (currentTypo) {
           case LcdTypography.segmentMatrix:
-            mainAmountStyle = TextStyle(
+            mainAmountStyle = const TextStyle(
               fontFamily: 'Courier',
-              fontFamilyFallback: const ['monospace'],
+              fontFamilyFallback: ['monospace'],
               fontSize: 48,
               fontWeight: FontWeight.w900,
               fontStyle: FontStyle.normal,
-              color: const Color(0xFF0A120A),
+              color: Color(0xFF0A120A),
               letterSpacing: 2.2,
-              fontFeatures: const [
+              fontFeatures: [
                 FontFeature.slashedZero(),
                 FontFeature.tabularFigures(),
               ],
@@ -285,31 +285,40 @@ class AmountDisplay extends StatelessWidget {
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      // Encabezado superior
+                      // Encabezado superior con soporte dinámico de expresión / abonos
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          GestureDetector(
-                            onTap: cycleTheme,
-                            child: Row(
-                              children: [
-                                Text(
-                                  tr('amount_to_charge'),
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w800,
-                                    color: defaultTextColor.withOpacity(0.85),
+                          Expanded(
+                            child: GestureDetector(
+                              onTap: cycleTheme,
+                              child: Row(
+                                children: [
+                                  Flexible(
+                                    child: Text(
+                                      (expression != null && expression!.isNotEmpty)
+                                          ? expression!
+                                          : tr('amount_to_charge'),
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w800,
+                                        color: defaultTextColor.withOpacity(0.85),
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
                                   ),
-                                ),
-                                const SizedBox(width: 4),
-                                Icon(
-                                  Icons.palette_outlined,
-                                  size: 13,
-                                  color: defaultTextColor.withOpacity(0.60),
-                                ),
-                              ],
+                                  const SizedBox(width: 4),
+                                  Icon(
+                                    Icons.palette_outlined,
+                                    size: 13,
+                                    color: defaultTextColor.withOpacity(0.60),
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
+                          const SizedBox(width: 6),
                           InkWell(
                             onTap: () => currency.toggleCurrency(),
                             borderRadius: BorderRadius.circular(8),
@@ -320,12 +329,12 @@ class AmountDisplay extends StatelessWidget {
                                 borderRadius: BorderRadius.circular(8),
                                 border: Border.all(color: Colors.white24, width: 0.8),
                               ),
-                              child: Row(
+                              child: const Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  const Text('🇺🇸', style: TextStyle(fontSize: 9)),
-                                  const SizedBox(width: 3),
-                                  const Text(
+                                  Text('🇺🇸', style: TextStyle(fontSize: 9)),
+                                  SizedBox(width: 3),
+                                  Text(
                                     'USD',
                                     style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.white),
                                   ),
@@ -337,7 +346,6 @@ class AmountDisplay extends StatelessWidget {
                       ),
 
                       // BANDEJA DE DESGLOSE CON ALTURA FIJA (72 px)
-                      // Mantiene invariante la altura total del LCD para evitar brincos en la cuadrícula inferior
                       Container(
                         height: 72,
                         margin: const EdgeInsets.symmetric(vertical: 4.0),
@@ -354,6 +362,7 @@ class AmountDisplay extends StatelessWidget {
                                 itemCount: orderItems!.length,
                                 itemBuilder: (context, idx) {
                                   final it = orderItems![idx];
+                                  final bool isPaid = it['is_paid'] == true;
                                   final sub = ((it['subtotal'] ?? it['price']) as num).toDouble();
                                   final isHighlighted = idx == lastModifiedIndex;
 
@@ -376,7 +385,12 @@ class AmountDisplay extends StatelessWidget {
                                               fontFamily: 'monospace',
                                               fontSize: 11,
                                               fontWeight: isHighlighted ? FontWeight.w900 : FontWeight.bold,
-                                              color: defaultTextColor,
+                                              color: isPaid
+                                                  ? defaultTextColor.withOpacity(0.40)
+                                                  : defaultTextColor,
+                                              decoration: isPaid ? TextDecoration.lineThrough : null,
+                                              decorationColor: const Color(0xFFDC2626),
+                                              decorationThickness: 2.0,
                                             ),
                                             maxLines: 1,
                                             overflow: TextOverflow.ellipsis,
@@ -388,10 +402,32 @@ class AmountDisplay extends StatelessWidget {
                                             fontFamily: 'monospace',
                                             fontSize: 11,
                                             fontWeight: FontWeight.w900,
-                                            color: defaultTextColor,
+                                            color: isPaid
+                                                ? defaultTextColor.withOpacity(0.40)
+                                                : defaultTextColor,
+                                            decoration: isPaid ? TextDecoration.lineThrough : null,
+                                            decorationColor: const Color(0xFFDC2626),
+                                            decorationThickness: 1.8,
                                           ),
                                         ),
-                                        if (onRemoveItem != null) ...[
+                                        if (isPaid) ...[
+                                          const SizedBox(width: 4),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 0.5),
+                                            decoration: BoxDecoration(
+                                              color: const Color(0xFF16A34A),
+                                              borderRadius: BorderRadius.circular(3),
+                                            ),
+                                            child: const Text(
+                                              '✓ PAGADO',
+                                              style: TextStyle(
+                                                fontSize: 8.0,
+                                                color: Colors.white,
+                                                fontWeight: FontWeight.w900,
+                                              ),
+                                            ),
+                                          ),
+                                        ] else if (onRemoveItem != null) ...[
                                           const SizedBox(width: 6),
                                           InkWell(
                                             onTap: () => onRemoveItem!(idx),
@@ -469,7 +505,7 @@ class AmountDisplay extends StatelessWidget {
                         ),
                       ),
 
-                      // Línea fija para tasa de cambio USD (evita variaciones verticales)
+                      // Línea fija para tasa de cambio USD
                       SizedBox(
                         height: 14,
                         child: isUsd

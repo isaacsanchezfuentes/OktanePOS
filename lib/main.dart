@@ -20,13 +20,18 @@ void main() async {
   await initializeDateFormatting('es_MX', null);
   await initializeDateFormatting('es', null);
 
-  // Optimización para dispositivos de gama baja (Low-RAM)
+  // Optimización de memoria para dispositivos de gama baja (Low-RAM)
   PaintingBinding.instance.imageCache.maximumSizeBytes = 1024 * 1024 * 25; // 25 MB max
   PaintingBinding.instance.imageCache.maximumSize = 50; // 50 imágenes max
 
+  // Inicialización de Supabase con sesión persistente y auto-refresh en background
   await Supabase.initialize(
     url: SupabaseConfig.url,
     anonKey: SupabaseConfig.anonKey,
+    authOptions: const FlutterAuthClientOptions(
+      authFlowType: AuthFlowType.pkce,
+      autoRefreshToken: true, // Renueva automáticamente el token en segundo plano para evitar cierres de sesión
+    ),
   );
 
   final db = AppDatabase();

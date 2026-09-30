@@ -13,6 +13,8 @@ class PaymentMethodBottomSheet extends StatefulWidget {
   final String? waiterId;
   final String? waiterName;
   final ChargeService chargeService;
+  final List<Map<String, dynamic>>? orderItems;
+  final void Function(List<int> paidIndices)? onItemsPaid;
 
   const PaymentMethodBottomSheet({
     super.key,
@@ -22,6 +24,8 @@ class PaymentMethodBottomSheet extends StatefulWidget {
     this.waiterId,
     this.waiterName,
     required this.chargeService,
+    this.orderItems,
+    this.onItemsPaid,
   });
 
   static Future<ChargeModel?> show(
@@ -32,10 +36,13 @@ class PaymentMethodBottomSheet extends StatefulWidget {
     String? waiterId,
     String? waiterName,
     required ChargeService chargeService,
+    List<Map<String, dynamic>>? orderItems,
+    void Function(List<int> paidIndices)? onItemsPaid,
   }) {
     return showModalBottomSheet<ChargeModel>(
       context: context,
       isScrollControlled: true,
+      backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
@@ -46,6 +53,8 @@ class PaymentMethodBottomSheet extends StatefulWidget {
         waiterId: waiterId,
         waiterName: waiterName,
         chargeService: chargeService,
+        orderItems: orderItems,
+        onItemsPaid: onItemsPaid,
       ),
     );
   }
@@ -58,24 +67,55 @@ class _PaymentMethodBottomSheetState extends State<PaymentMethodBottomSheet> {
   String _selectedMethod = 'efectivo'; // 'efectivo', 'tarjeta', 'qr'
   final TextEditingController _cashReceivedController = TextEditingController();
   final TextEditingController _tipController = TextEditingController();
+  final TextEditingController _customAmountController = TextEditingController();
+
   bool _isLoading = false;
+  late double _effectiveChargeAmount;
+  late Set<int> _selectedIndices;
+  bool _isManualAbonoMode = false;
 
   @override
   void initState() {
     super.initState();
     _tipController.text = widget.tipAmount > 0 ? widget.tipAmount.toStringAsFixed(2) : '0.00';
+
+    if (widget.orderItems != null && widget.orderItems!.isNotEmpty) {
+      _selectedIndices = Set<int>.from(List.generate(widget.orderItems!.length, (i) => i));
+      _effectiveChargeAmount = widget.amount;
+    } else {
+      _selectedIndices = <int>{};
+      _effectiveChargeAmount = widget.amount;
+    }
+
+    _customAmountController.text = _effectiveChargeAmount.toStringAsFixed(2);
     _updateCashReceivedDefault();
+  }
+
+  void _recalculateAmountFromSelectedItems() {
+    if (widget.orderItems != null && widget.orderItems!.isNotEmpty) {
+      double sum = 0.0;
+      for (final idx in _selectedIndices) {
+        if (idx < widget.orderItems!.length) {
+          final item = widget.orderItems![idx];
+          sum += ((item['subtotal'] ?? item['price']) as num).toDouble();
+        }
+      }
+      _effectiveChargeAmount = sum > 0 ? sum : 0.0;
+      _customAmountController.text = _effectiveChargeAmount.toStringAsFixed(2);
+      _updateCashReceivedDefault();
+    }
   }
 
   void _updateCashReceivedDefault() {
     final tip = double.tryParse(_tipController.text) ?? 0.0;
-    _cashReceivedController.text = (widget.amount + tip).toStringAsFixed(2);
+    _cashReceivedController.text = (_effectiveChargeAmount + tip).toStringAsFixed(2);
   }
 
   @override
   void dispose() {
     _cashReceivedController.dispose();
     _tipController.dispose();
+    _customAmountController.dispose();
     super.dispose();
   }
 
@@ -83,24 +123,25 @@ class _PaymentMethodBottomSheetState extends State<PaymentMethodBottomSheet> {
     return NumberFormat.currency(locale: 'es_MX', symbol: '\$', decimalDigits: 2).format(val);
   }
 
-  double get _currentTip {
-    return double.tryParse(_tipController.text) ?? 0.0;
-  }
-
-  double get _totalWithTip {
-    return widget.amount + _currentTip;
-  }
-
-  double get _cashReceived {
-    return double.tryParse(_cashReceivedController.text) ?? 0.0;
-  }
-
+  double get _currentTip => double.tryParse(_tipController.text) ?? 0.0;
+  double get _totalWithTip => _effectiveChargeAmount + _currentTip;
+  double get _cashReceived => double.tryParse(_cashReceivedController.text) ?? 0.0;
   double get _change {
     final diff = _cashReceived - _totalWithTip;
     return diff > 0 ? diff : 0.0;
   }
 
   Future<void> _confirmCharge(String method) async {
+    if (_effectiveChargeAmount <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('⚠️ Selecciona al menos un platillo o un monto válido a cobrar.'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
     setState(() => _isLoading = true);
 
     try {
@@ -108,7 +149,7 @@ class _PaymentMethodBottomSheetState extends State<PaymentMethodBottomSheet> {
       final conceptFinal = widget.concept.trim().isEmpty ? 'Consumo mostrador' : widget.concept.trim();
 
       final charge = await widget.chargeService.createPendingCharge(
-        amount: widget.amount,
+        amount: _effectiveChargeAmount,
         tipAmount: _currentTip,
         userId: userId,
         concept: conceptFinal,
@@ -129,8 +170,12 @@ class _PaymentMethodBottomSheetState extends State<PaymentMethodBottomSheet> {
         try {
           await ThermalPrinterService().printChargeTicket(charge);
         } catch (e) {
-          debugPrint('⚠️ Intento de impresión térmica finalizado con nota: $e');
+          debugPrint('⚠️ Impresión térmica con nota: $e');
         }
+      }
+
+      if (widget.orderItems != null && widget.orderItems!.isNotEmpty) {
+        widget.onItemsPaid?.call(_selectedIndices.toList());
       }
 
       if (mounted) {
@@ -152,185 +197,322 @@ class _PaymentMethodBottomSheetState extends State<PaymentMethodBottomSheet> {
   @override
   Widget build(BuildContext context) {
     final viewInsetsBottom = MediaQuery.of(context).viewInsets.bottom;
+    final hasItems = widget.orderItems != null && widget.orderItems!.isNotEmpty;
 
-    return Padding(
-      padding: EdgeInsets.only(
-        left: 20.0,
-        right: 20.0,
-        top: 20.0,
-        bottom: 20.0 + viewInsetsBottom,
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Center(
-            child: Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.grey[300],
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-
-          // Header with amount and concept
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    return SafeArea(
+      child: AnimatedPadding(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOut,
+        padding: EdgeInsets.only(bottom: viewInsetsBottom),
+        child: SingleChildScrollView(
+          physics: const BouncingScrollPhysics(),
+          padding: const EdgeInsets.fromLTRB(20.0, 16.0, 20.0, 24.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Método de Cobro',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                    ),
-                    Text(
-                      widget.concept.trim().isEmpty ? 'Consumo mostrador' : widget.concept,
-                      style: TextStyle(fontSize: 14, color: Colors.grey[600]),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.primaryContainer,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Text(
-                  _formatCurrency(_totalWithTip),
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w800,
-                    color: Theme.of(context).colorScheme.onPrimaryContainer,
+              Center(
+                child: Container(
+                  width: 44,
+                  height: 4.5,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[400],
+                    borderRadius: BorderRadius.circular(2.5),
                   ),
                 ),
               ),
-            ],
-          ),
-          const SizedBox(height: 16),
+              const SizedBox(height: 14),
 
-          // Campo de Propina Integrado con Chips Rápido
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              TextField(
-                controller: _tipController,
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                decoration: InputDecoration(
-                  labelText: 'Propina opcional',
-                  prefixText: '\$ ',
-                  suffixText: 'MXN',
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                  isDense: true,
-                ),
-                onChanged: (val) {
-                  setState(() {
-                    _updateCashReceivedDefault();
-                  });
-                },
+              // Encabezado
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Método de Cobro',
+                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: Color(0xFF0F172A)),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          widget.concept.trim().isEmpty ? 'Consumo mostrador' : widget.concept,
+                          style: const TextStyle(fontSize: 13, color: Color(0xFF64748B), fontWeight: FontWeight.w600),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEFF6FF),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFFBFDBFE), width: 1.2),
+                    ),
+                    child: Text(
+                      _formatCurrency(_totalWithTip),
+                      style: const TextStyle(
+                        fontSize: 19,
+                        fontWeight: FontWeight.w900,
+                        color: Color(0xFF1D4ED8),
+                      ),
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 8),
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
+
+              // DESGLOSE POR PLATILLOS A COBRAR
+              if (hasItems) ...[
+                const SizedBox(height: 14),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8FAFC),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text(
+                            'Platillos a pagar en este cobro:',
+                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF334155)),
+                          ),
+                          InkWell(
+                            onTap: () {
+                              setState(() {
+                                if (_selectedIndices.length == widget.orderItems!.length) {
+                                  _selectedIndices.clear();
+                                } else {
+                                  _selectedIndices = Set<int>.from(List.generate(widget.orderItems!.length, (i) => i));
+                                }
+                                _recalculateAmountFromSelectedItems();
+                              });
+                            },
+                            child: Text(
+                              _selectedIndices.length == widget.orderItems!.length ? 'Desmarcar todos' : 'Marcar todos',
+                              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF2563EB)),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: List.generate(widget.orderItems!.length, (index) {
+                          final item = widget.orderItems![index];
+                          final isSelected = _selectedIndices.contains(index);
+                          final subtotal = ((item['subtotal'] ?? item['price']) as num).toDouble();
+                          final qty = (item['quantity'] as num?)?.toInt() ?? 1;
+
+                          return FilterChip(
+                            selected: isSelected,
+                            checkmarkColor: Colors.white,
+                            selectedColor: const Color(0xFF2563EB),
+                            backgroundColor: Colors.white,
+                            label: Text(
+                              '${qty}x ${item['name']} (${_formatCurrency(subtotal)})',
+                              style: TextStyle(
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.bold,
+                                color: isSelected ? Colors.white : const Color(0xFF1E293B),
+                              ),
+                            ),
+                            onSelected: (selected) {
+                              setState(() {
+                                if (selected) {
+                                  _selectedIndices.add(index);
+                                } else {
+                                  _selectedIndices.remove(index);
+                                }
+                                _recalculateAmountFromSelectedItems();
+                              });
+                            },
+                          );
+                        }),
+                      ),
+                    ],
+                  ),
+                ),
+              ] else if (widget.amount > 0) ...[
+                // ABONO PARCIAL POR MONTO DIRECTO
+                const SizedBox(height: 10),
+                Row(
                   children: [
-                    ActionChip(
-                      label: const Text('Sin propina'),
-                      onPressed: () {
+                    InkWell(
+                      onTap: () {
                         setState(() {
-                          _tipController.text = '0.00';
-                          _updateCashReceivedDefault();
+                          _isManualAbonoMode = !_isManualAbonoMode;
+                          if (!_isManualAbonoMode) {
+                            _effectiveChargeAmount = widget.amount;
+                            _customAmountController.text = widget.amount.toStringAsFixed(2);
+                            _updateCashReceivedDefault();
+                          }
                         });
                       },
-                    ),
-                    const SizedBox(width: 6),
-                    ActionChip(
-                      label: Text('10% (\$' + (widget.amount * 0.10).toStringAsFixed(2) + ')'),
-                      onPressed: () {
-                        setState(() {
-                          _tipController.text = (widget.amount * 0.10).toStringAsFixed(2);
-                          _updateCashReceivedDefault();
-                        });
-                      },
-                    ),
-                    const SizedBox(width: 6),
-                    ActionChip(
-                      label: Text('15% (\$' + (widget.amount * 0.15).toStringAsFixed(2) + ')'),
-                      onPressed: () {
-                        setState(() {
-                          _tipController.text = (widget.amount * 0.15).toStringAsFixed(2);
-                          _updateCashReceivedDefault();
-                        });
-                      },
+                      child: Text(
+                        _isManualAbonoMode ? '↩️ Cobrar saldo completo' : '✂️ ¿Abono parcial / Dividir cuenta?',
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF2563EB)),
+                      ),
                     ),
                   ],
                 ),
+                if (_isManualAbonoMode) ...[
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _customAmountController,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                    decoration: InputDecoration(
+                      labelText: 'Monto de este abono parcial',
+                      prefixText: '\$ ',
+                      suffixText: 'MXN',
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      isDense: true,
+                    ),
+                    onChanged: (val) {
+                      final parsed = double.tryParse(val) ?? 0.0;
+                      setState(() {
+                        _effectiveChargeAmount = parsed.clamp(0.0, widget.amount);
+                        _updateCashReceivedDefault();
+                      });
+                    },
+                  ),
+                ],
+              ],
+
+              const SizedBox(height: 14),
+
+              // Campo de Propina
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  TextField(
+                    controller: _tipController,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                    decoration: InputDecoration(
+                      labelText: 'Propina opcional',
+                      labelStyle: const TextStyle(color: Color(0xFF64748B), fontWeight: FontWeight.bold),
+                      prefixText: '\$ ',
+                      prefixStyle: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                      suffixText: 'MXN',
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      isDense: true,
+                    ),
+                    onChanged: (val) {
+                      setState(() {
+                        _updateCashReceivedDefault();
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        ActionChip(
+                          label: const Text('Sin propina'),
+                          onPressed: () {
+                            setState(() {
+                              _tipController.text = '0.00';
+                              _updateCashReceivedDefault();
+                            });
+                          },
+                        ),
+                        const SizedBox(width: 6),
+                        ActionChip(
+                          label: Text('10% (\$' + (_effectiveChargeAmount * 0.10).toStringAsFixed(2) + ')'),
+                          onPressed: () {
+                            setState(() {
+                              _tipController.text = (_effectiveChargeAmount * 0.10).toStringAsFixed(2);
+                              _updateCashReceivedDefault();
+                            });
+                          },
+                        ),
+                        const SizedBox(width: 6),
+                        ActionChip(
+                          label: Text('15% (\$' + (_effectiveChargeAmount * 0.15).toStringAsFixed(2) + ')'),
+                          onPressed: () {
+                            setState(() {
+                              _tipController.text = (_effectiveChargeAmount * 0.15).toStringAsFixed(2);
+                              _updateCashReceivedDefault();
+                            });
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
+              const SizedBox(height: 14),
+
+              // Pestañas
+              Row(
+                children: [
+                  _buildMethodTab('efectivo', Icons.payments_outlined, 'Efectivo'),
+                  const SizedBox(width: 8),
+                  _buildMethodTab('tarjeta', Icons.contactless_outlined, 'Tarjeta'),
+                  const SizedBox(width: 8),
+                  _buildMethodTab('qr', Icons.qr_code_2_outlined, 'QR Dinámico'),
+                ],
+              ),
+              const SizedBox(height: 16),
+
+              if (_selectedMethod == 'efectivo') _buildEfectivoContent(),
+              if (_selectedMethod == 'tarjeta') _buildTarjetaContent(),
+              if (_selectedMethod == 'qr') _buildQrContent(),
             ],
           ),
-          const SizedBox(height: 16),
-
-          // Payment Method Tabs
-          Row(
-            children: [
-              _buildMethodTab('efectivo', Icons.payments_outlined, 'Efectivo'),
-              const SizedBox(width: 8),
-              _buildMethodTab('tarjeta', Icons.contactless_outlined, 'Tarjeta'),
-              const SizedBox(width: 8),
-              _buildMethodTab('qr', Icons.qr_code_2_outlined, 'QR Dinámico'),
-            ],
-          ),
-          const SizedBox(height: 20),
-
-          // Active Method Content
-          if (_selectedMethod == 'efectivo') _buildEfectivoContent(),
-          if (_selectedMethod == 'tarjeta') _buildTarjetaContent(),
-          if (_selectedMethod == 'qr') _buildQrContent(),
-
-          const SizedBox(height: 16),
-        ],
+        ),
       ),
     );
   }
 
   Widget _buildMethodTab(String id, IconData icon, String label) {
     final isSelected = _selectedMethod == id;
-    final primaryColor = Theme.of(context).colorScheme.primary;
+    const primaryColor = Color(0xFF2563EB);
 
     return Expanded(
-      child: InkWell(
-        onTap: () => setState(() => _selectedMethod = id),
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          decoration: BoxDecoration(
-            color: isSelected ? primaryColor.withValues(alpha: 0.12) : Colors.grey[100],
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: isSelected ? primaryColor : Colors.grey[300]!,
-              width: isSelected ? 2 : 1,
-            ),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, color: isSelected ? primaryColor : Colors.grey[700], size: 26),
-              const SizedBox(height: 4),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                  color: isSelected ? primaryColor : Colors.grey[800],
-                ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () => setState(() => _selectedMethod = id),
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 10),
+            decoration: BoxDecoration(
+              color: isSelected ? primaryColor.withValues(alpha: 0.12) : const Color(0xFFF1F5F9),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: isSelected ? primaryColor : const Color(0xFFCBD5E1),
+                width: isSelected ? 2 : 1,
               ),
-            ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, color: isSelected ? primaryColor : const Color(0xFF475569), size: 24),
+                const SizedBox(height: 4),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: isSelected ? FontWeight.w900 : FontWeight.w600,
+                    color: isSelected ? primaryColor : const Color(0xFF1E293B),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -354,23 +536,30 @@ class _PaymentMethodBottomSheetState extends State<PaymentMethodBottomSheet> {
         TextField(
           controller: _cashReceivedController,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF0F172A)),
           decoration: InputDecoration(
             labelText: 'Monto Recibido',
+            labelStyle: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF64748B)),
             prefixText: '\$ ',
+            prefixStyle: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
             suffixText: 'MXN',
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           ),
           onChanged: (_) => setState(() {}),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 10),
         SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           child: Row(
             children: cashOptions.map((val) {
               return Padding(
-                padding: const EdgeInsets.only(right: 8.0),
+                padding: const EdgeInsets.only(right: 6.0),
                 child: ActionChip(
-                  label: Text('\$${val.toStringAsFixed(val.truncateToDouble() == val ? 0 : 2)}'),
+                  label: Text(
+                    '\$${val.toStringAsFixed(val.truncateToDouble() == val ? 0 : 2)}',
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
                   onPressed: () {
                     setState(() {
                       _cashReceivedController.text = val.toStringAsFixed(2);
@@ -381,40 +570,41 @@ class _PaymentMethodBottomSheetState extends State<PaymentMethodBottomSheet> {
             }).toList(),
           ),
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 12),
         Container(
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           decoration: BoxDecoration(
-            color: Colors.green[50],
+            color: const Color(0xFFF0FDF4),
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.green[200]!),
+            border: Border.all(color: const Color(0xFFBBF7D0)),
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               const Text(
                 'Cambio:',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.green),
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF16A34A)),
               ),
               Text(
                 _formatCurrency(_change),
-                style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.green),
+                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: Color(0xFF16A34A)),
               ),
             ],
           ),
         ),
-        const SizedBox(height: 20),
+        const SizedBox(height: 16),
         ElevatedButton(
           onPressed: _isLoading ? null : () => _confirmCharge('efectivo'),
           style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.green[700],
+            backgroundColor: const Color(0xFF16A34A),
             foregroundColor: Colors.white,
-            padding: const EdgeInsets.symmetric(vertical: 16),
+            padding: const EdgeInsets.symmetric(vertical: 14),
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            elevation: 2,
           ),
           child: _isLoading
               ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-              : const Text('CONFIRMAR COBRO EN EFECTIVO', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              : Text('CONFIRMAR COBRO ${_formatCurrency(_totalWithTip)}', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, letterSpacing: 0.5)),
         ),
       ],
     );
@@ -424,43 +614,44 @@ class _PaymentMethodBottomSheetState extends State<PaymentMethodBottomSheet> {
     return Column(
       children: [
         Container(
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
           decoration: BoxDecoration(
-            color: Colors.blue[50],
+            color: const Color(0xFFEFF6FF),
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: Colors.blue[200]!),
+            border: Border.all(color: const Color(0xFFBFDBFE)),
           ),
           child: Column(
-            children: [
-              const Icon(Icons.contactless, size: 64, color: Colors.blue),
-              const SizedBox(height: 12),
-              const Text(
-                'Aproxime la tarjeta o terminal POS',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.blue),
-              ),
-              const SizedBox(height: 4),
+            children: const [
+              Icon(Icons.contactless, size: 54, color: Color(0xFF2563EB)),
+              SizedBox(height: 10),
               Text(
-                'Acepta Visa, Mastercard, American Express y Tap to Pay',
+                'Aproxime tarjeta o terminal Clip',
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF1E40AF)),
+              ),
+              SizedBox(height: 4),
+              Text(
+                'Visa, Mastercard, AMEX y Contactless / Apple Pay',
                 textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 12, color: Colors.blue[900]),
+                style: TextStyle(fontSize: 12, color: Color(0xFF3B82F6), fontWeight: FontWeight.w600),
               ),
             ],
           ),
         ),
-        const SizedBox(height: 20),
+        const SizedBox(height: 16),
         SizedBox(
           width: double.infinity,
           child: ElevatedButton(
             onPressed: _isLoading ? null : () => _confirmCharge('tarjeta'),
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.blue[700],
+              backgroundColor: const Color(0xFF2563EB),
               foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(vertical: 16),
+              padding: const EdgeInsets.symmetric(vertical: 14),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              elevation: 2,
             ),
             child: _isLoading
                 ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                : const Text('CONFIRMAR PAGO CON TARJETA', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                : Text('CONFIRMAR PAGO ${_formatCurrency(_totalWithTip)}', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, letterSpacing: 0.5)),
           ),
         ),
       ],
@@ -476,16 +667,16 @@ class _PaymentMethodBottomSheetState extends State<PaymentMethodBottomSheet> {
     return Column(
       children: [
         Container(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: Colors.grey[300]!),
+            border: Border.all(color: const Color(0xFFE2E8F0)),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.05),
-                blurRadius: 10,
-                offset: const Offset(0, 4),
+                color: Colors.black.withValues(alpha: 0.04),
+                blurRadius: 8,
+                offset: const Offset(0, 3),
               ),
             ],
           ),
@@ -494,17 +685,17 @@ class _PaymentMethodBottomSheetState extends State<PaymentMethodBottomSheet> {
               QrImageView(
                 data: qrData,
                 version: QrVersions.auto,
-                size: 180.0,
+                size: 160.0,
               ),
-              const SizedBox(height: 8),
-              Text(
-                'Muestre o imprima el código QR para el cliente',
-                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+              const SizedBox(height: 6),
+              const Text(
+                'Escanee con CoDi, Mercado Pago o banca móvil',
+                style: TextStyle(fontSize: 11.5, color: Color(0xFF64748B), fontWeight: FontWeight.w600),
               ),
             ],
           ),
         ),
-        const SizedBox(height: 20),
+        const SizedBox(height: 16),
         SizedBox(
           width: double.infinity,
           child: ElevatedButton.icon(
@@ -512,12 +703,13 @@ class _PaymentMethodBottomSheetState extends State<PaymentMethodBottomSheet> {
             icon: const Icon(Icons.print_outlined),
             label: _isLoading
                 ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                : const Text('IMPRIMIR TICKET QR', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                : Text('IMPRIMIR TICKET QR ${_formatCurrency(_totalWithTip)}', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, letterSpacing: 0.5)),
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.deepPurple[700],
+              backgroundColor: const Color(0xFF7C3AED),
               foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(vertical: 16),
+              padding: const EdgeInsets.symmetric(vertical: 14),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              elevation: 2,
             ),
           ),
         ),

@@ -1,7 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 import '../services/charge_service.dart';
 import '../widgets/amount_display.dart';
 import '../widgets/pos_keypad.dart';
@@ -45,7 +48,7 @@ class QuickChargeScreen extends StatefulWidget {
   State<QuickChargeScreen> createState() => _QuickChargeScreenState();
 }
 
-class _QuickChargeScreenState extends State<QuickChargeScreen> {
+class _QuickChargeScreenState extends State<QuickChargeScreen> with WidgetsBindingObserver {
   late final ChargeService _chargeService;
   late final ShiftService _shiftService;
   late final TableService _tableService;
@@ -56,12 +59,13 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
   double _amount = 0.0;
   String _rawInput = '0';
   String _calculatorExpression = '';
-  double? _lastAnswer;
+  double _mathAccumulator = 0.0;
+  String? _activeOperator;
   bool _isScientificMode = false;
   final TextEditingController _conceptController = TextEditingController();
   final TextEditingController _notesController = TextEditingController();
 
-  String _selectedTableLabel = 'Barra / Mostrador';
+  String _selectedTableLabel = 'Mostrador / Para Llevar';
   String? _selectedWaiterId;
   String? _selectedWaiterName;
 
@@ -69,8 +73,7 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
   int? _lastModifiedIndex;
   Timer? _highlightTimer;
 
-  // Memoria del total de la comanda y abonos parciales realizados
-  double _tableTotal = 0.0;
+  double _baselineTotal = 0.0;
   final List<double> _paidPartialAmounts = [];
 
   String _selectedCategoryKey = 'Todos';
@@ -78,6 +81,9 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _activateWakelock();
+
     _chargeService = ChargeService();
     _shiftService = ShiftService();
     _tableService = widget.tableService ?? TableService();
@@ -86,8 +92,8 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
     if (widget.initialAmount != null && widget.initialAmount! > 0) {
       _amount = widget.initialAmount!;
       _rawInput = widget.initialAmount!.toStringAsFixed(2);
-      _tableTotal = widget.initialAmount!;
-      _calculatorExpression = 'Cuenta Total (\$${_tableTotal.toStringAsFixed(2)})';
+      _baselineTotal = widget.initialAmount!;
+      _calculatorExpression = 'Cuenta Total (\$${_baselineTotal.toStringAsFixed(2)})';
     }
     if (widget.initialConcept != null && widget.initialConcept!.isNotEmpty) {
       _conceptController.text = widget.initialConcept!;
@@ -95,38 +101,135 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
     if (widget.tableName != null && widget.tableName!.isNotEmpty) {
       _selectedTableLabel = widget.tableName!;
     }
+
+    if (widget.initialAmount == null || widget.initialAmount == 0) {
+      _restoreDraftFromDisk();
+    }
   }
 
-  double get _currentTableTotal {
-    if (_tableTotal > 0) return _tableTotal;
-    if (_pendingOrderItems.isNotEmpty) {
-      return _pendingOrderItems.fold(0.0, (sum, it) => sum + ((it['subtotal'] ?? it['price']) as num).toDouble());
+  Future<void> _activateWakelock() async {
+    try {
+      await WakelockPlus.enable();
+    } catch (e) {
+      debugPrint('ℹ️️ Wakelock offline: $e');
     }
-    return 0.0;
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+      _persistCurrentSessionToDisk();
+    }
+  }
+
+  Future<void> _persistCurrentSessionToDisk() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('pos_active_table', _selectedTableLabel);
+      await prefs.setString('pos_saved_items', jsonEncode(_pendingOrderItems));
+      await prefs.setString('pos_saved_paid_partials', jsonEncode(_paidPartialAmounts));
+      await prefs.setDouble('pos_saved_baseline_total', _baselineTotal);
+      await prefs.setDouble('pos_saved_amount', _amount);
+      await prefs.setString('pos_saved_raw_input', _rawInput);
+      await prefs.setString('pos_saved_expression', _calculatorExpression);
+      if (_selectedWaiterId != null) await prefs.setString('pos_saved_waiter_id', _selectedWaiterId!);
+      if (_selectedWaiterName != null) await prefs.setString('pos_saved_waiter_name', _selectedWaiterName!);
+      await prefs.setInt('pos_saved_timestamp', DateTime.now().millisecondsSinceEpoch);
+    } catch (e) {
+      debugPrint('⚠️ Error guardando sesión: $e');
+    }
+  }
+
+  Future<void> _restoreDraftFromDisk() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedTimestamp = prefs.getInt('pos_saved_timestamp') ?? 0;
+      final now = DateTime.now().millisecondsSinceEpoch;
+
+      if (now - savedTimestamp > 18 * 3600 * 1000) return;
+
+      final savedItemsRaw = prefs.getString('pos_saved_items');
+      final savedPartialsRaw = prefs.getString('pos_saved_paid_partials');
+
+      if (savedItemsRaw != null && savedItemsRaw.isNotEmpty && savedItemsRaw != '[]') {
+        final List decodedItems = jsonDecode(savedItemsRaw);
+        final List decodedPartials = savedPartialsRaw != null ? jsonDecode(savedPartialsRaw) : [];
+
+        if (mounted) {
+          setState(() {
+            _pendingOrderItems.clear();
+            _pendingOrderItems.addAll(List<Map<String, dynamic>>.from(decodedItems));
+
+            _paidPartialAmounts.clear();
+            _paidPartialAmounts.addAll(decodedPartials.map((e) => (e as num).toDouble()));
+
+            _baselineTotal = prefs.getDouble('pos_saved_baseline_total') ?? 0.0;
+            _amount = prefs.getDouble('pos_saved_amount') ?? _unpaidItemsSum;
+            _rawInput = prefs.getString('pos_saved_raw_input') ?? _amount.toStringAsFixed(2);
+            _calculatorExpression = prefs.getString('pos_saved_expression') ?? '';
+
+            final savedTable = prefs.getString('pos_active_table');
+            if (savedTable != null && savedTable.isNotEmpty) {
+              _selectedTableLabel = savedTable;
+            }
+
+            _selectedWaiterId = prefs.getString('pos_saved_waiter_id');
+            _selectedWaiterName = prefs.getString('pos_saved_waiter_name');
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('⚠️ Error restaurando estado: $e');
+    }
+  }
+
+  Future<void> _clearPersistedSession() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('pos_active_table');
+      await prefs.remove('pos_saved_items');
+      await prefs.remove('pos_saved_paid_partials');
+      await prefs.remove('pos_saved_baseline_total');
+      await prefs.remove('pos_saved_amount');
+      await prefs.remove('pos_saved_raw_input');
+      await prefs.remove('pos_saved_expression');
+      await prefs.remove('pos_saved_timestamp');
+    } catch (e) {
+      debugPrint('⚠️ Error limpiando sesión: $e');
+    }
+  }
+
+  double get _unpaidItemsSum {
+    return _pendingOrderItems
+        .where((it) => it['is_paid'] != true)
+        .fold(0.0, (sum, it) => sum + ((it['subtotal'] ?? it['price']) as num).toDouble());
+  }
+
+  double get _effectiveTotalBill {
+    if (_pendingOrderItems.isNotEmpty) {
+      final totalPaid = _paidPartialAmounts.fold(0.0, (s, a) => s + a);
+      return _unpaidItemsSum + totalPaid;
+    }
+    if (_baselineTotal > 0) return _baselineTotal;
+    return _amount;
   }
 
   double get _remainingTableBalance {
     final totalPaid = _paidPartialAmounts.fold(0.0, (sum, amt) => sum + amt);
-    final rem = _currentTableTotal - totalPaid;
+    final rem = _effectiveTotalBill - totalPaid;
     return rem > 0 ? rem : 0.0;
   }
 
   void _triggerHighlight(int index) {
     _highlightTimer?.cancel();
-    setState(() {
-      _lastModifiedIndex = index;
-    });
+    setState(() => _lastModifiedIndex = index);
     _highlightTimer = Timer(const Duration(milliseconds: 1400), () {
-      if (mounted) {
-        setState(() {
-          _lastModifiedIndex = null;
-        });
-      }
+      if (mounted) setState(() => _lastModifiedIndex = null);
     });
   }
 
   void _onProductQuickTapped(MenuItemModel item) {
-    final existingIdx = _pendingOrderItems.indexWhere((it) => it['id'] == item.id);
+    final existingIdx = _pendingOrderItems.indexWhere((it) => it['id'] == item.id && it['is_paid'] != true);
     setState(() {
       if (existingIdx >= 0) {
         final currentQty = (_pendingOrderItems[existingIdx]['quantity'] as num).toInt();
@@ -143,40 +246,42 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
           'is_takeaway': false,
           'notes': '',
           'subtotal': item.price,
+          'is_paid': false,
         });
         _triggerHighlight(_pendingOrderItems.length - 1);
       }
       _recalculateTotalFromPendingItems();
     });
+    _persistCurrentSessionToDisk();
   }
 
   void _removeLastInsertion() {
     setState(() {
-      if (_pendingOrderItems.isNotEmpty) {
-        final lastIdx = _pendingOrderItems.length - 1;
-        final currentQty = (_pendingOrderItems[lastIdx]['quantity'] as num).toInt();
+      final unpaidItems = _pendingOrderItems.where((it) => it['is_paid'] != true).toList();
+      if (unpaidItems.isNotEmpty) {
+        final lastItem = unpaidItems.last;
+        final realIndex = _pendingOrderItems.lastIndexOf(lastItem);
+        final currentQty = (lastItem['quantity'] as num).toInt();
         if (currentQty > 1) {
-          _pendingOrderItems[lastIdx]['quantity'] = currentQty - 1;
-          _pendingOrderItems[lastIdx]['subtotal'] =
-              (_pendingOrderItems[lastIdx]['price'] as num) * (currentQty - 1);
-          _triggerHighlight(lastIdx);
+          lastItem['quantity'] = currentQty - 1;
+          lastItem['subtotal'] = (lastItem['price'] as num) * (currentQty - 1);
+          _triggerHighlight(realIndex);
         } else {
-          _pendingOrderItems.removeAt(lastIdx);
-          if (_pendingOrderItems.isNotEmpty) {
-            _triggerHighlight(_pendingOrderItems.length - 1);
-          }
+          _pendingOrderItems.removeAt(realIndex);
         }
         _recalculateTotalFromPendingItems();
       } else {
         _handleKeyTap('BACKSPACE');
       }
     });
+    _persistCurrentSessionToDisk();
   }
 
   void _openScientificWithAns() {
     setState(() {
       _isScientificMode = true;
-      _lastAnswer = _amount;
+      _mathAccumulator = _amount;
+      _activeOperator = null;
       _calculatorExpression = 'Ans (${_amount.toStringAsFixed(2)})';
       _rawInput = '0';
     });
@@ -187,27 +292,34 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
       _amount = 0.0;
       _rawInput = '0';
       _calculatorExpression = '';
+      _mathAccumulator = 0.0;
+      _activeOperator = null;
       _conceptController.clear();
       _notesController.clear();
       _pendingOrderItems.clear();
       _paidPartialAmounts.clear();
-      _tableTotal = widget.initialAmount ?? 0.0;
+      _baselineTotal = 0.0;
       _lastModifiedIndex = null;
     });
+    _clearPersistedSession();
   }
 
   void _handleKeyTap(String key) {
     setState(() {
-      // 1. Borrar / Revertir último abono si no pasó
+      if (key == 'COBRO_MULTIPLE') {
+        _openPaymentModal(isSplitModeDirect: true);
+        return;
+      }
+
       if (key == 'CLEAR' || key == 'C' || key == 'CA') {
         if (_rawInput != '0' && _rawInput != _remainingTableBalance.toStringAsFixed(2)) {
-          _amount = 0.0;
+          _amount = _mathAccumulator > 0 ? _mathAccumulator : _unpaidItemsSum;
           _rawInput = '0';
+          _activeOperator = null;
           _calculatorExpression = '';
           return;
         }
 
-        // Si ya estaba en 0 o en el saldo y hay abonos previos, deshace el último cobro
         if (_paidPartialAmounts.isNotEmpty) {
           final lastPaid = _paidPartialAmounts.removeLast();
           final rem = _remainingTableBalance;
@@ -215,16 +327,17 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
           _rawInput = rem.toStringAsFixed(2);
           final totalPaid = _paidPartialAmounts.fold(0.0, (s, a) => s + a);
           _calculatorExpression = totalPaid > 0
-              ? 'Total \$${_currentTableTotal.toStringAsFixed(2)} - Pagos \$${totalPaid.toStringAsFixed(2)}'
-              : 'Cuenta Total (\$${_currentTableTotal.toStringAsFixed(2)})';
+              ? 'Total \$${_effectiveTotalBill.toStringAsFixed(2)} - Pagado \$${totalPaid.toStringAsFixed(2)}'
+              : 'Cuenta Total (\$${_effectiveTotalBill.toStringAsFixed(2)})';
 
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('↩️ ${tr('partial_payment_reverted')} \$${lastPaid.toStringAsFixed(2)} MXN'),
+              content: Text('↩️ Abono revertido: \$${lastPaid.toStringAsFixed(2)} MXN'),
               backgroundColor: Colors.orange[800],
               duration: const Duration(seconds: 2),
             ),
           );
+          _persistCurrentSessionToDisk();
           return;
         }
 
@@ -232,17 +345,20 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
         return;
       }
 
-      // 2. Botón CUENTA TOTAL (antes ×10)
       if (key == 'TOTAL' || key == 'CUENTA TOTAL' || key == 'TOTAL MESA' || key == 'CUENTA\nTOTAL' || key == '×10') {
         final rem = _remainingTableBalance;
         _amount = rem;
         _rawInput = rem.toStringAsFixed(2);
-        final totalPaid = _paidPartialAmounts.fold(0.0, (sum, amt) => sum + amt);
-        if (totalPaid > 0) {
-          _calculatorExpression = 'Total \$${_currentTableTotal.toStringAsFixed(2)} - Pagos \$${totalPaid.toStringAsFixed(2)}';
-        } else {
-          _calculatorExpression = 'Cuenta Total (\$${_currentTableTotal.toStringAsFixed(2)})';
-        }
+        _activeOperator = null;
+        _calculatorExpression = 'Cuenta Total (\$${_effectiveTotalBill.toStringAsFixed(2)})';
+        return;
+      }
+
+      if (key == '+' || key == '-' || key == '×' || key == '÷') {
+        _mathAccumulator = _amount > 0 ? _amount : (double.tryParse(_rawInput) ?? 0.0);
+        _activeOperator = key;
+        _calculatorExpression = '${_mathAccumulator.toStringAsFixed(2)} $key';
+        _rawInput = '0';
         return;
       }
 
@@ -252,91 +368,41 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
         } else {
           _rawInput = '0';
         }
-        _amount = double.tryParse(_rawInput) ?? 0.0;
-        return;
-      }
-
-      if (key == '=') {
-        _calculateExpressionResult();
-        return;
-      }
-
-      if (key == 'Ans') {
-        if (_lastAnswer != null) {
-          _rawInput = _lastAnswer!.toStringAsFixed(2);
-          _amount = _lastAnswer!;
-          _calculatorExpression += ' Ans';
-        }
-        return;
-      }
-
-      if (key == '+' || key == '-' || key == '×' || key == '÷') {
-        if (_calculatorExpression.contains('Ans') && _rawInput == '0') {
-          _calculatorExpression = '$_calculatorExpression $key';
-        } else {
-          _calculatorExpression += ' ${_amount.toStringAsFixed(2)} $key';
-        }
-        _rawInput = '0';
-        _amount = 0.0;
+        _evaluateRealtimeMath();
         return;
       }
 
       if (_rawInput == '0') {
-        if (key == '.') {
-          _rawInput = '0.';
-        } else {
-          _rawInput = key;
-        }
+        _rawInput = (key == '.') ? '0.' : key;
       } else {
         if (key == '.' && _rawInput.contains('.')) return;
         if (_rawInput.contains('.') && _rawInput.split('.')[1].length >= 2) return;
         _rawInput += key;
       }
 
-      _amount = double.tryParse(_rawInput) ?? 0.0;
+      _evaluateRealtimeMath();
     });
   }
 
-  void _calculateExpressionResult() {
-    if (_calculatorExpression.isEmpty) return;
-
-    final fullExpr = '$_calculatorExpression ${_amount.toStringAsFixed(2)}';
-    String normalizedExpr = fullExpr;
-    if (_lastAnswer != null) {
-      normalizedExpr = normalizedExpr.replaceAll(
-        RegExp(r'Ans(\s*\([\d.]+\))?'),
-        _lastAnswer!.toStringAsFixed(2),
-      );
-    }
-
-    final parts = normalizedExpr.trim().split(RegExp(r'\s+'));
-    if (parts.isEmpty) return;
-
-    double accumulator = double.tryParse(parts[0]) ?? 0.0;
-    String currentOp = '';
-
-    for (int i = 1; i < parts.length; i++) {
-      final token = parts[i];
-      if (token == '+' || token == '-' || token == '×' || token == '÷') {
-        currentOp = token;
-      } else {
-        final val = double.tryParse(token) ?? 0.0;
-        if (currentOp == '+') {
-          accumulator += val;
-        } else if (currentOp == '-') {
-          accumulator -= val;
-        } else if (currentOp == '×') {
-          accumulator *= val;
-        } else if (currentOp == '÷') {
-          if (val != 0) accumulator /= val;
-        }
+  void _evaluateRealtimeMath() {
+    final currentOperand = double.tryParse(_rawInput) ?? 0.0;
+    if (_activeOperator != null) {
+      if (_activeOperator == '+') {
+        _amount = _mathAccumulator + currentOperand;
+      } else if (_activeOperator == '-') {
+        _amount = _mathAccumulator - currentOperand;
+      } else if (_activeOperator == '×') {
+        _amount = _mathAccumulator * currentOperand;
+      } else if (_activeOperator == '÷') {
+        _amount = currentOperand != 0 ? _mathAccumulator / currentOperand : _mathAccumulator;
+      }
+      _calculatorExpression = '${_mathAccumulator.toStringAsFixed(2)} $_activeOperator $_rawInput';
+    } else {
+      _amount = currentOperand;
+      if (_paidPartialAmounts.isEmpty && _pendingOrderItems.isEmpty) {
+        _baselineTotal = _amount;
       }
     }
-
-    _lastAnswer = accumulator;
-    _amount = accumulator;
-    _rawInput = accumulator.toStringAsFixed(2);
-    _calculatorExpression = '$fullExpr =';
   }
 
   void _removePendingItem(int index) {
@@ -344,13 +410,13 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
       _pendingOrderItems.removeAt(index);
       _recalculateTotalFromPendingItems();
     });
+    _persistCurrentSessionToDisk();
   }
 
   void _onMenuItemSelected(MenuItemModel selected) async {
     _menuSearchController?.clear();
 
     final result = await ItemPreAddDialog.show(context, menuItem: selected);
-
     if (result != null) {
       setState(() {
         final qty = (result['quantity'] as num?)?.toInt() ?? 1;
@@ -359,7 +425,7 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
         final takeawayExtra = isTakeaway ? 5.0 : 0.0;
         final subtotal = (selected.price + takeawayExtra) * qty;
 
-        final resultItem = {
+        _pendingOrderItems.add({
           'id': selected.id,
           'name': selected.name,
           'price': selected.price,
@@ -367,23 +433,22 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
           'is_takeaway': isTakeaway,
           'notes': notes,
           'subtotal': subtotal,
-        };
-
-        _pendingOrderItems.add(resultItem);
+          'is_paid': false,
+        });
         _triggerHighlight(_pendingOrderItems.length - 1);
         _recalculateTotalFromPendingItems();
       });
+      _persistCurrentSessionToDisk();
     }
   }
 
   void _recalculateTotalFromPendingItems() {
-    double sum = 0.0;
-    for (final item in _pendingOrderItems) {
-      sum += (item['subtotal'] as num?)?.toDouble() ?? 0.0;
-    }
-    _tableTotal = sum;
+    final sum = _unpaidItemsSum;
     _amount = sum;
     _rawInput = sum.toStringAsFixed(2);
+    if (_paidPartialAmounts.isEmpty) {
+      _baselineTotal = sum;
+    }
   }
 
   void _navigateToTableOrderDetail() async {
@@ -392,7 +457,12 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
 
     for (final z in _tableService.getZones()) {
       for (final t in _tableService.getTablesByZone(z.id)) {
-        final label = '${tr('table')} #${t.tableNumber} (${z.name})';
+        if (t.isStructural) continue;
+        final label = (t.label != null && t.label!.trim().isNotEmpty)
+            ? (t.shape == 'stool' && !t.label!.contains('(Barra)')
+                ? '${t.label} (Barra)'
+                : t.label!)
+            : (t.shape == 'stool' ? 'Banquillo ${t.tableNumber} (Barra)' : '${tr('table')} #${t.tableNumber} (${z.name})');
         if (label == _selectedTableLabel) {
           targetTable = t;
           targetZone = z;
@@ -404,10 +474,11 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
     if (targetTable == null) {
       targetTable = const RestaurantTableModel(
         id: '00000000-0000-4000-8000-000000000020',
-        tableNumber: 20,
-        zoneId: '11111111-1111-4000-8000-000000000001',
+        tableNumber: 1,
+        label: 'Banquillo 1 (Barra)',
+        zoneId: '11111111-1111-4000-8000-000000000003',
       );
-      targetZone = _tableService.getZones().first;
+      targetZone = _tableService.getZones().last;
     }
 
     if (targetZone != null) {
@@ -438,6 +509,7 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
           _recalculateTotalFromPendingItems();
         }
       });
+      _persistCurrentSessionToDisk();
     }
   }
 
@@ -446,6 +518,7 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
       _selectedWaiterName = name;
       _selectedWaiterId = id;
     });
+    _persistCurrentSessionToDisk();
   }
 
   Future<bool> _showMandatoryOpenShiftDialog(BuildContext context, String userId) async {
@@ -473,10 +546,7 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              tr('shift_required_desc'),
-              style: const TextStyle(color: Color(0xFFCBD5E1), fontSize: 13),
-            ),
+            Text(tr('shift_required_desc'), style: const TextStyle(color: Color(0xFFCBD5E1), fontSize: 13)),
             const SizedBox(height: 16),
             TextField(
               controller: initialCashController,
@@ -530,13 +600,18 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
     final currentWaiterName = _selectedWaiterName ?? (activeUser?.email?.split('@').first ?? 'Mesero');
 
     String tableId = widget.tableId ?? '00000000-0000-4000-8000-000000000020';
-    String zoneId = widget.zoneId ?? '11111111-1111-4000-8000-000000000001';
+    String zoneId = widget.zoneId ?? '11111111-1111-4000-8000-000000000003';
 
     if (widget.tableId == null) {
       for (final z in _tableService.getZones()) {
         for (final t in _tableService.getTablesByZone(z.id)) {
-          final label = '${tr('table')} #${t.tableNumber} (${z.name})';
-          if (label == _selectedTableLabel || _selectedTableLabel.contains('#${t.tableNumber}')) {
+          if (t.isStructural) continue;
+          final label = (t.label != null && t.label!.trim().isNotEmpty)
+              ? (t.shape == 'stool' && !t.label!.contains('(Barra)')
+                  ? '${t.label} (Barra)'
+                  : t.label!)
+              : (t.shape == 'stool' ? 'Banquillo ${t.tableNumber} (Barra)' : '${tr('table')} #${t.tableNumber} (${z.name})');
+          if (label == _selectedTableLabel) {
             tableId = t.id;
             zoneId = z.id;
             break;
@@ -545,9 +620,7 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
       }
     }
 
-    final conceptFinal = _conceptController.text.trim().isEmpty
-        ? 'Ronda de Consumo'
-        : _conceptController.text.trim();
+    final conceptFinal = _conceptController.text.trim().isEmpty ? 'Ronda de Consumo' : _conceptController.text.trim();
 
     _tableService.addTicketToTable(
       zoneId,
@@ -583,8 +656,8 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
     widget.onPaymentSuccess?.call();
   }
 
-  Future<void> _openPaymentModal() async {
-    if (_amount <= 0) return;
+  Future<void> _openPaymentModal({bool isSplitModeDirect = false}) async {
+    if (_amount <= 0 && _pendingOrderItems.isEmpty) return;
 
     final userId = _selectedWaiterId ?? (Supabase.instance.client.auth.currentUser?.id ?? '');
     final activeShift = await _shiftService.getActiveShift(userId);
@@ -596,20 +669,27 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
     }
 
     String conceptText = _conceptController.text.trim().isEmpty 
-        ? tr('bar_counter') 
+        ? 'Mostrador / Para Llevar' 
         : _conceptController.text.trim();
 
     if (_notesController.text.trim().isNotEmpty) {
       conceptText = '$conceptText (${_notesController.text.trim()})';
     }
 
-    if (_selectedTableLabel != tr('bar_counter') && _selectedTableLabel != 'Barra / Mostrador') {
+    if (_selectedTableLabel != 'Mostrador / Para Llevar') {
       conceptText = '$_selectedTableLabel - $conceptText';
     }
 
     if (!mounted) return;
 
+    if (_baselineTotal <= 0) {
+      _baselineTotal = _pendingOrderItems.isNotEmpty ? _unpaidItemsSum : _amount;
+    }
+
     final currentWaiterName = _selectedWaiterName ?? (Supabase.instance.client.auth.currentUser?.email?.split('@').first ?? 'Mesero');
+
+    List<int> paidIndices = [];
+    final unpaidItems = _pendingOrderItems.where((it) => it['is_paid'] != true).toList();
 
     final resultCharge = await PaymentMethodBottomSheet.show(
       context,
@@ -618,6 +698,10 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
       waiterId: userId,
       waiterName: currentWaiterName,
       chargeService: _chargeService,
+      orderItems: unpaidItems,
+      onItemsPaid: (indices) {
+        paidIndices = indices;
+      },
     );
 
     if (resultCharge != null && mounted) {
@@ -627,10 +711,16 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
               ? tr('card_payment_registered')
               : tr('cash_payment_registered');
 
-      // Registrar abono parcial en memoria
       final double paidAmount = resultCharge.amount;
       _paidPartialAmounts.add(paidAmount);
-      final double remaining = _remainingTableBalance;
+
+      if (paidIndices.isNotEmpty) {
+        for (final idx in paidIndices) {
+          if (idx < unpaidItems.length) {
+            unpaidItems[idx]['is_paid'] = true;
+          }
+        }
+      }
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -638,9 +728,7 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
             children: [
               const Icon(Icons.check_circle, color: Colors.white),
               const SizedBox(width: 8),
-              Expanded(
-                child: Text('✅ $methodDisplay (\$${paidAmount.toStringAsFixed(2)} MXN)'),
-              ),
+              Expanded(child: Text('✅ $methodDisplay (\$${paidAmount.toStringAsFixed(2)} MXN)')),
             ],
           ),
           backgroundColor: Colors.green[700],
@@ -649,25 +737,39 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
         ),
       );
 
-      // Si ya no queda saldo pendiente, liberar mesa y cerrar
-      if (remaining <= 0.01) {
+      final double remaining = _remainingTableBalance;
+      final bool allItemsPaid = _pendingOrderItems.isNotEmpty && _pendingOrderItems.every((it) => it['is_paid'] == true);
+
+      if (allItemsPaid || (_pendingOrderItems.isEmpty && remaining <= 0.01)) {
         if (widget.tableId != null && widget.zoneId != null) {
           try {
             (widget.tableService ?? TableService()).clearAllTableTickets(widget.zoneId!, widget.tableId!);
             widget.onPaymentSuccess?.call();
           } catch (e) {
-            debugPrint('⚠️ Error liberando mesa tras pago: $e');
+            debugPrint('⚠️ Error liberando mesa: $e');
           }
         }
         _resetKeypad();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('🎉 ¡Cuenta completada con éxito!'),
+            backgroundColor: Color(0xFF0D9488),
+            duration: Duration(seconds: 3),
+          ),
+        );
       } else {
-        // Aún queda saldo pendiente por cobrar en la cuenta
         setState(() {
-          _amount = remaining;
-          _rawInput = remaining.toStringAsFixed(2);
+          _amount = _pendingOrderItems.isNotEmpty ? _unpaidItemsSum : remaining;
+          _rawInput = _amount.toStringAsFixed(2);
+          _activeOperator = null;
           final totalPaid = _paidPartialAmounts.fold(0.0, (s, a) => s + a);
-          _calculatorExpression = 'Restante \$${remaining.toStringAsFixed(2)} (Pagado: \$${totalPaid.toStringAsFixed(2)})';
+          _calculatorExpression = 'Restante \$${_amount.toStringAsFixed(2)} (Abonado: \$${totalPaid.toStringAsFixed(2)})';
         });
+
+        if (widget.tableId != null) {
+          _tableService.saveTableDraft(widget.tableId!, _pendingOrderItems);
+        }
+        _persistCurrentSessionToDisk();
       }
     }
   }
@@ -678,6 +780,8 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    WakelockPlus.disable();
     _highlightTimer?.cancel();
     _conceptController.dispose();
     _notesController.dispose();
@@ -690,6 +794,7 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
       listenable: Listenable.merge([
         AppLocale.instance,
         ThemeService.instance,
+        _tableService,
       ]),
       builder: (context, _) {
         final activeUserEmail = Supabase.instance.client.auth.currentUser?.email;
@@ -704,13 +809,33 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
           {'id': 'waiter-4', 'name': 'Ana (${tr('waiter_service')} 3)'},
         ];
 
-        final List<String> availableTables = [tr('bar_counter')];
+        // "Mostrador / Para Llevar" como opción 1 y "Banquillo X (Barra)" para taburetes
+        final List<String> rawTables = ['Mostrador / Para Llevar'];
         for (final z in _tableService.getZones()) {
           for (final t in _tableService.getTablesByZone(z.id)) {
-            availableTables.add('${tr('table')} #${t.tableNumber} (${z.name})');
+            if (t.isStructural) continue;
+            final label = (t.label != null && t.label!.trim().isNotEmpty)
+                ? (t.shape == 'stool' && !t.label!.contains('(Barra)')
+                    ? '${t.label} (Barra)'
+                    : t.label!)
+                : (t.shape == 'stool' ? 'Banquillo ${t.tableNumber} (Barra)' : '${tr('table')} #${t.tableNumber} (${z.name})');
+            rawTables.add(label);
           }
         }
-        if (!availableTables.contains(_selectedTableLabel)) {
+
+        final List<String> availableTables = [];
+        final Map<String, int> counts = {};
+        for (final item in rawTables) {
+          if (!counts.containsKey(item)) {
+            counts[item] = 1;
+            availableTables.add(item);
+          } else {
+            counts[item] = counts[item]! + 1;
+            availableTables.add('$item #${counts[item]}');
+          }
+        }
+
+        if (!availableTables.contains(_selectedTableLabel) && availableTables.isNotEmpty) {
           _selectedTableLabel = availableTables.first;
         }
 
@@ -735,9 +860,7 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
               constraints: const BoxConstraints(maxWidth: 140),
               child: InkWell(
                 onTap: () {
-                  setState(() {
-                    _isScientificMode = !_isScientificMode;
-                  });
+                  setState(() => _isScientificMode = !_isScientificMode);
                 },
                 borderRadius: BorderRadius.circular(6),
                 child: Container(
@@ -763,11 +886,7 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
                         const SizedBox(width: 4),
                         Text(
                           _isScientificMode ? tr('touch_menu') : tr('calculator'),
-                          style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w800,
-                            color: Colors.white,
-                          ),
+                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Colors.white),
                         ),
                       ],
                     ),
@@ -784,23 +903,13 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
                     Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Icon(
-                          Icons.local_fire_department_rounded,
-                          size: 20,
-                          color: Color(0xFFF97316),
-                        ),
+                        const Icon(Icons.local_fire_department_rounded, size: 20, color: Color(0xFFF97316)),
                         const SizedBox(width: 4),
                         RichText(
                           text: const TextSpan(
                             children: [
-                              TextSpan(
-                                text: 'Oktane ',
-                                style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16),
-                              ),
-                              TextSpan(
-                                text: 'POS',
-                                style: TextStyle(color: Color(0xFF38BDF8), fontWeight: FontWeight.w900, fontSize: 16),
-                              ),
+                              TextSpan(text: 'Oktane ', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16)),
+                              TextSpan(text: 'POS', style: TextStyle(color: Color(0xFF38BDF8), fontWeight: FontWeight.w900, fontSize: 16)),
                             ],
                           ),
                         ),
@@ -869,7 +978,6 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
                       ),
                     ),
                   ),
-
                   SafeArea(
                     child: isLandscape
                         ? _buildLandscapeLayout(context, availableTables, activeUserName, waitersList, menuItems)
@@ -885,12 +993,12 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
   }
 
   Widget _buildPortraitLayout(
-      BuildContext context,
-      List<String> availableTables,
-      String activeUserName,
-      List<Map<String, String>> waitersList,
-      List<MenuItemModel> menuItems,
-      ) {
+    BuildContext context,
+    List<String> availableTables,
+    String activeUserName,
+    List<Map<String, String>> waitersList,
+    List<MenuItemModel> menuItems,
+  ) {
     return Column(
       children: [
         AmountDisplay(
@@ -900,25 +1008,18 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
           orderItems: _pendingOrderItems,
           lastModifiedIndex: _lastModifiedIndex,
           onRemoveItem: _removePendingItem,
-          onTapTables: () {
-            Navigator.push(context, MaterialPageRoute(builder: (context) => const TablesMapScreen()));
+          onTapTables: () async {
+            await Navigator.push(context, MaterialPageRoute(builder: (context) => const TablesMapScreen()));
+            if (mounted) setState(() {});
           },
-          onTapPrinter: () {
-            Navigator.push(context, MaterialPageRoute(builder: (context) => const PrinterSettingsScreen()));
-          },
-          onTapHistory: () {
-            Navigator.push(context, MaterialPageRoute(builder: (context) => const ChargesHistoryScreen()));
-          },
+          onTapPrinter: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const PrinterSettingsScreen())),
+          onTapHistory: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const ChargesHistoryScreen())),
         ),
         _buildSubStrip(ThemeService.instance),
         _buildControlsCard(ThemeService.instance, availableTables, activeUserName, waitersList, menuItems),
-
         Expanded(
           child: _isScientificMode
-              ? PosKeypad(
-                  onKeyTap: _handleKeyTap,
-                  isScientificMode: true,
-                )
+              ? PosKeypad(onKeyTap: _handleKeyTap, isScientificMode: true)
               : _buildProductSection(menuItems),
         ),
         _buildCobrarButton(ThemeService.instance),
@@ -927,12 +1028,12 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
   }
 
   Widget _buildControlsCard(
-      ThemeService theme,
-      List<String> availableTables,
-      String activeUserName,
-      List<Map<String, String>> waitersList,
-      List<MenuItemModel> menuItems,
-      ) {
+    ThemeService theme,
+    List<String> availableTables,
+    String activeUserName,
+    List<Map<String, String>> waitersList,
+    List<MenuItemModel> menuItems,
+  ) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 3.0),
       child: Column(
@@ -942,7 +1043,9 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
             children: [
               Expanded(
                 child: DropdownButtonFormField<String>(
-                  initialValue: _selectedTableLabel,
+                  value: availableTables.contains(_selectedTableLabel)
+                      ? _selectedTableLabel
+                      : (availableTables.isNotEmpty ? availableTables.first : null),
                   isExpanded: true,
                   icon: const Icon(Icons.arrow_drop_down, color: Color(0xFF0F172A), size: 24),
                   dropdownColor: const Color(0xFFF8FAFC),
@@ -953,44 +1056,37 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
                   ),
                   decoration: InputDecoration(
                     labelText: tr('table_location'),
-                    labelStyle: const TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w900,
-                      color: Color(0xFF0F172A),
-                    ),
+                    labelStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: Color(0xFF0F172A)),
                     floatingLabelBehavior: FloatingLabelBehavior.always,
                     contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                     filled: true,
                     fillColor: Colors.white.withValues(alpha: 0.08),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: const BorderSide(color: Color(0xFF0F172A), width: 1.3),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: const BorderSide(color: Color(0xFF0F172A), width: 1.3),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: const BorderSide(color: Color(0xFF0F172A), width: 1.6),
-                    ),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFF0F172A), width: 1.3)),
+                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFF0F172A), width: 1.3)),
+                    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFF0F172A), width: 1.6)),
                   ),
-                  items: availableTables.map((t) {
-                    return DropdownMenuItem(
-                      value: t,
-                      child: Text(t, overflow: TextOverflow.ellipsis),
-                    );
-                  }).toList(),
+                  items: availableTables.map((t) => DropdownMenuItem(
+                    value: t,
+                    child: Text(
+                      t,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: Color(0xFF0F172A), fontWeight: FontWeight.w800),
+                    ),
+                  )).toList(),
                   onChanged: (val) {
-                    if (val != null) setState(() => _selectedTableLabel = val);
+                    if (val != null) {
+                      setState(() => _selectedTableLabel = val);
+                      _persistCurrentSessionToDisk();
+                    }
                   },
                 ),
               ),
               const SizedBox(width: 8),
-
               Expanded(
                 child: DropdownButtonFormField<String>(
-                  initialValue: _selectedWaiterName ?? activeUserName,
+                  value: waitersList.any((w) => w['name'] == (_selectedWaiterName ?? activeUserName))
+                      ? (_selectedWaiterName ?? activeUserName)
+                      : (waitersList.isNotEmpty ? waitersList.first['name'] : null),
                   isExpanded: true,
                   icon: const Icon(Icons.arrow_drop_down, color: Color(0xFF0F172A), size: 24),
                   dropdownColor: const Color(0xFFF8FAFC),
@@ -1001,34 +1097,23 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
                   ),
                   decoration: InputDecoration(
                     labelText: tr('waiter_service'),
-                    labelStyle: const TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w900,
-                      color: Color(0xFF0F172A),
-                    ),
+                    labelStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: Color(0xFF0F172A)),
                     floatingLabelBehavior: FloatingLabelBehavior.always,
                     contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                     filled: true,
                     fillColor: Colors.white.withValues(alpha: 0.08),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: const BorderSide(color: Color(0xFF0F172A), width: 1.3),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: const BorderSide(color: Color(0xFF0F172A), width: 1.3),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: const BorderSide(color: Color(0xFF0F172A), width: 1.6),
-                    ),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFF0F172A), width: 1.3)),
+                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFF0F172A), width: 1.3)),
+                    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFF0F172A), width: 1.6)),
                   ),
-                  items: waitersList.map((w) {
-                    return DropdownMenuItem<String>(
-                      value: w['name'],
-                      child: Text(w['name']!, overflow: TextOverflow.ellipsis),
-                    );
-                  }).toList(),
+                  items: waitersList.map((w) => DropdownMenuItem<String>(
+                    value: w['name'],
+                    child: Text(
+                      w['name']!,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: Color(0xFF0F172A), fontWeight: FontWeight.w800),
+                    ),
+                  )).toList(),
                   onChanged: (val) {
                     if (val != null) {
                       final selected = waitersList.firstWhere((w) => w['name'] == val);
@@ -1040,7 +1125,6 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
             ],
           ),
           const SizedBox(height: 6),
-
           SizedBox(
             width: double.infinity,
             height: 38,
@@ -1049,21 +1133,11 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
                 gradient: const LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
-                  colors: [
-                    Color(0xFF3B67B5),
-                    Color(0xFF2C5094),
-                    Color(0xFF213F7B),
-                  ],
+                  colors: [Color(0xFF3B67B5), Color(0xFF2C5094), Color(0xFF213F7B)],
                 ),
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(color: const Color(0xFF0F172A), width: 1.3),
-                boxShadow: const [
-                  BoxShadow(
-                    color: Color(0x33000000),
-                    offset: Offset(0, 2),
-                    blurRadius: 2,
-                  ),
-                ],
+                boxShadow: const [BoxShadow(color: Color(0x33000000), offset: Offset(0, 2), blurRadius: 2)],
               ),
               child: Material(
                 color: Colors.transparent,
@@ -1080,12 +1154,7 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
                       FittedBox(
                         child: Text(
                           tr('take_full_order_view_table'),
-                          style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: 0.6,
-                            color: Colors.white,
-                          ),
+                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900, letterSpacing: 0.6, color: Colors.white),
                         ),
                       ),
                     ],
@@ -1095,16 +1164,11 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
             ),
           ),
           const SizedBox(height: 6),
-
           Autocomplete<MenuItemModel>(
             optionsBuilder: (TextEditingValue textEditingValue) {
               final query = textEditingValue.text.trim();
-              if (query.isEmpty) {
-                return const Iterable<MenuItemModel>.empty();
-              }
-              return menuItems.where((item) {
-                return item.name.toLowerCase().contains(query.toLowerCase());
-              });
+              if (query.isEmpty) return const Iterable<MenuItemModel>.empty();
+              return menuItems.where((item) => item.name.toLowerCase().contains(query.toLowerCase()));
             },
             displayStringForOption: (option) => option.name,
             onSelected: (option) {
@@ -1116,9 +1180,7 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
             },
             optionsViewBuilder: (context, onSelected, options) {
               final query = _menuSearchController?.text.trim() ?? '';
-              if (query.isEmpty || options.isEmpty) {
-                return const SizedBox.shrink();
-              }
+              if (query.isEmpty || options.isEmpty) return const SizedBox.shrink();
               return Align(
                 alignment: Alignment.topLeft,
                 child: Material(
@@ -1126,10 +1188,7 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
                   borderRadius: BorderRadius.circular(10),
                   color: Colors.white,
                   child: ConstrainedBox(
-                    constraints: BoxConstraints(
-                      maxHeight: 180,
-                      maxWidth: MediaQuery.of(context).size.width - 28,
-                    ),
+                    constraints: BoxConstraints(maxHeight: 180, maxWidth: MediaQuery.of(context).size.width - 28),
                     child: ListView.builder(
                       padding: EdgeInsets.zero,
                       shrinkWrap: true,
@@ -1139,14 +1198,8 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
                         return ListTile(
                           dense: true,
                           visualDensity: VisualDensity.compact,
-                          title: Text(
-                            option.name,
-                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
-                          ),
-                          trailing: Text(
-                            '\$${option.price.toStringAsFixed(2)}',
-                            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: Color(0xFF2563EB)),
-                          ),
+                          title: Text(option.name, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
+                          trailing: Text('\$${option.price.toStringAsFixed(2)}', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: Color(0xFF2563EB))),
                           onTap: () => onSelected(option),
                         );
                       },
@@ -1162,38 +1215,17 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
                 child: TextField(
                   controller: controller,
                   focusNode: focusNode,
-                  style: const TextStyle(
-                    color: Color(0xFF0F172A),
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w700,
-                  ),
+                  style: const TextStyle(color: Color(0xFF0F172A), fontSize: 12.5, fontWeight: FontWeight.w700),
                   decoration: InputDecoration(
                     hintText: tr('search_menu_hint'),
-                    hintStyle: TextStyle(
-                      color: const Color(0xFF0F172A).withValues(alpha: 0.65),
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    ),
-                    prefixIcon: const Icon(
-                      Icons.search,
-                      size: 20,
-                      color: Color(0xFF334155),
-                    ),
+                    hintStyle: TextStyle(color: const Color(0xFF0F172A).withValues(alpha: 0.65), fontSize: 12, fontWeight: FontWeight.w600),
+                    prefixIcon: const Icon(Icons.search, size: 20, color: Color(0xFF334155)),
                     contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                     filled: true,
                     fillColor: Colors.white.withValues(alpha: 0.12),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: const BorderSide(color: Color(0xFF0F172A), width: 1.3),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: const BorderSide(color: Color(0xFF0F172A), width: 1.3),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: const BorderSide(color: Color(0xFF0F172A), width: 1.6),
-                    ),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFF0F172A), width: 1.3)),
+                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFF0F172A), width: 1.3)),
+                    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFF0F172A), width: 1.6)),
                     suffixIcon: controller.text.isNotEmpty
                         ? InkWell(
                             onTap: () {
@@ -1243,11 +1275,8 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Expanded(
-                  child: _buildProductGrid(filteredItems),
-                ),
+                Expanded(child: _buildProductGrid(filteredItems)),
                 const SizedBox(width: 5),
-
                 SizedBox(
                   width: 52,
                   child: Column(
@@ -1255,40 +1284,23 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
                     children: [
                       Expanded(
                         child: _buildThinKeyButton(
-                          child: const Icon(
-                            Icons.backspace_outlined,
-                            size: 22,
-                            color: Color(0xFF0F172A),
-                          ),
+                          child: const Icon(Icons.backspace_outlined, size: 22, color: Color(0xFF0F172A)),
                           onTap: _removeLastInsertion,
                         ),
                       ),
                       const SizedBox(height: 5),
-
                       Expanded(
                         child: _buildThinKeyButton(
-                          child: const Text(
-                            'C',
-                            style: TextStyle(
-                              color: Color(0xFFDC2626),
-                              fontSize: 22,
-                              fontWeight: FontWeight.w900,
-                            ),
-                          ),
+                          child: const Text('C', style: TextStyle(color: Color(0xFFDC2626), fontSize: 22, fontWeight: FontWeight.w900)),
                           onTap: _resetKeypad,
                         ),
                       ),
                       const SizedBox(height: 5),
-
                       Expanded(
                         child: _buildThinKeyButton(
                           isEnter: true,
-                          child: const Icon(
-                            Icons.keyboard_return_rounded,
-                            size: 26,
-                            color: Color(0xFF142412),
-                          ),
-                          onTap: _openScientificWithAns,
+                          child: const Icon(Icons.checklist_rtl_rounded, size: 26, color: Color(0xFF142412)),
+                          onTap: () => _openPaymentModal(isSplitModeDirect: true),
                         ),
                       ),
                     ],
@@ -1298,7 +1310,6 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
             ),
           ),
           const SizedBox(height: 6),
-
           _buildCategoryFilterBar(),
         ],
       ),
@@ -1324,33 +1335,16 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 1.5),
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
-                onTap: () {
-                  setState(() {
-                    _selectedCategoryKey = cat['key']!;
-                  });
-                },
+                onTap: () => setState(() => _selectedCategoryKey = cat['key']!),
                 child: Container(
                   alignment: Alignment.center,
                   decoration: BoxDecoration(
                     gradient: isSelected
-                        ? const LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: [Color(0xFF2563EB), Color(0xFF1D4ED8)],
-                          )
-                        : const LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: [Color(0xFFF1F5F9), Color(0xFFCBD5E1)],
-                          ),
+                        ? const LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color(0xFF2563EB), Color(0xFF1D4ED8)])
+                        : const LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color(0xFFF1F5F9), Color(0xFFCBD5E1)]),
                     borderRadius: BorderRadius.circular(6),
-                    border: Border.all(
-                      color: isSelected ? const Color(0xFF93C5FD) : const Color(0xFF8492A6),
-                      width: isSelected ? 1.2 : 0.8,
-                    ),
-                    boxShadow: const [
-                      BoxShadow(color: Color(0x33000000), offset: Offset(0, 1.5), blurRadius: 1.5),
-                    ],
+                    border: Border.all(color: isSelected ? const Color(0xFF93C5FD) : const Color(0xFF8492A6), width: isSelected ? 1.2 : 0.8),
+                    boxShadow: const [BoxShadow(color: Color(0x33000000), offset: Offset(0, 1.5), blurRadius: 1.5)],
                   ),
                   child: Text(
                     cat['label']!,
@@ -1401,17 +1395,11 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
           gradient: gradient,
           borderRadius: BorderRadius.circular(7),
           border: Border.all(
-            color: isEnter
-                ? const Color(0xFF5E7358).withValues(alpha: 0.60)
-                : Colors.black.withValues(alpha: 0.28),
+            color: isEnter ? const Color(0xFF5E7358).withValues(alpha: 0.60) : Colors.black.withValues(alpha: 0.28),
             width: 1.0,
           ),
           boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.20),
-              offset: const Offset(1.5, 2.0),
-              blurRadius: 2.5,
-            ),
+            BoxShadow(color: Colors.black.withValues(alpha: 0.20), offset: const Offset(1.5, 2.0), blurRadius: 2.5),
           ],
         ),
         child: Center(child: child),
@@ -1422,10 +1410,7 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
   Widget _buildProductGrid(List<MenuItemModel> items) {
     if (items.isEmpty) {
       return Center(
-        child: Text(
-          tr('menu_empty'),
-          style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.bold, fontSize: 11),
-        ),
+        child: Text(tr('menu_empty'), style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.bold, fontSize: 11)),
       );
     }
 
@@ -1451,10 +1436,7 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
           itemCount: items.length,
           itemBuilder: (context, index) {
             final item = items[index];
-            final existing = _pendingOrderItems.firstWhere(
-              (it) => it['id'] == item.id,
-              orElse: () => {},
-            );
+            final existing = _pendingOrderItems.firstWhere((it) => it['id'] == item.id && it['is_paid'] != true, orElse: () => {});
             final currentQty = existing.isNotEmpty ? (existing['quantity'] as num).toInt() : 0;
 
             return GestureDetector(
@@ -1475,13 +1457,7 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
                     color: currentQty > 0 ? const Color(0xFF548235) : const Color(0xFF8492A6),
                     width: currentQty > 0 ? 1.4 : 1.0,
                   ),
-                  boxShadow: const [
-                    BoxShadow(
-                      color: Color(0x33000000),
-                      offset: Offset(0, 1.8),
-                      blurRadius: 1.5,
-                    ),
-                  ],
+                  boxShadow: const [BoxShadow(color: Color(0x33000000), offset: Offset(0, 1.8), blurRadius: 1.5)],
                 ),
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -1493,18 +1469,8 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
                           Container(
                             margin: const EdgeInsets.only(right: 3),
                             padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 1),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF2E7D32),
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: Text(
-                              '${currentQty}x',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 9,
-                                fontWeight: FontWeight.w900,
-                              ),
-                            ),
+                            decoration: BoxDecoration(color: const Color(0xFF2E7D32), borderRadius: BorderRadius.circular(4)),
+                            child: Text('${currentQty}x', style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.w900)),
                           ),
                         Flexible(
                           child: Text(
@@ -1541,12 +1507,12 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
   }
 
   Widget _buildLandscapeLayout(
-      BuildContext context,
-      List<String> availableTables,
-      String activeUserName,
-      List<Map<String, String>> waitersList,
-      List<MenuItemModel> menuItems,
-      ) {
+    BuildContext context,
+    List<String> availableTables,
+    String activeUserName,
+    List<Map<String, String>> waitersList,
+    List<MenuItemModel> menuItems,
+  ) {
     return Column(
       children: [
         Expanded(
@@ -1565,15 +1531,12 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
                         orderItems: _pendingOrderItems,
                         lastModifiedIndex: _lastModifiedIndex,
                         onRemoveItem: _removePendingItem,
-                        onTapTables: () {
-                          Navigator.push(context, MaterialPageRoute(builder: (context) => const TablesMapScreen()));
+                        onTapTables: () async {
+                          await Navigator.push(context, MaterialPageRoute(builder: (context) => const TablesMapScreen()));
+                          if (mounted) setState(() {});
                         },
-                        onTapPrinter: () {
-                          Navigator.push(context, MaterialPageRoute(builder: (context) => const PrinterSettingsScreen()));
-                        },
-                        onTapHistory: () {
-                          Navigator.push(context, MaterialPageRoute(builder: (context) => const ChargesHistoryScreen()));
-                        },
+                        onTapPrinter: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const PrinterSettingsScreen())),
+                        onTapHistory: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const ChargesHistoryScreen())),
                       ),
                       _buildSubStrip(ThemeService.instance),
                       _buildControlsCard(ThemeService.instance, availableTables, activeUserName, waitersList, menuItems),
@@ -1584,10 +1547,7 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
               Expanded(
                 flex: 5,
                 child: _isScientificMode
-                    ? PosKeypad(
-                        onKeyTap: _handleKeyTap,
-                        isScientificMode: true,
-                      )
+                    ? PosKeypad(onKeyTap: _handleKeyTap, isScientificMode: true)
                     : _buildProductSection(menuItems),
               ),
             ],
@@ -1614,20 +1574,14 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
             ),
             borderRadius: BorderRadius.circular(6),
             border: Border.all(color: const Color(0xFFFDBA74), width: 0.8),
-            boxShadow: const [
-              BoxShadow(color: Color(0x33000000), offset: Offset(0, 1.5), blurRadius: 2),
-            ],
+            boxShadow: const [BoxShadow(color: Color(0x33000000), offset: Offset(0, 1.5), blurRadius: 2)],
           ),
           child: ElevatedButton.icon(
             onPressed: _amount > 0
                 ? () {
                     if (_pendingOrderItems.isEmpty) {
                       ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(tr('select_item_alert')),
-                          backgroundColor: Colors.orange,
-                          duration: const Duration(seconds: 2),
-                        ),
+                        SnackBar(content: Text(tr('select_item_alert')), backgroundColor: Colors.orange, duration: const Duration(seconds: 2)),
                       );
                       return;
                     }
@@ -1655,7 +1609,7 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
   }
 
   Widget _buildCobrarButton(ThemeService theme) {
-    final bool isReadyToCharge = _amount > 0;
+    final bool isReadyToCharge = _amount > 0 || _pendingOrderItems.any((it) => it['is_paid'] != true);
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 4.0),
@@ -1671,100 +1625,88 @@ class _QuickChargeScreenState extends State<QuickChargeScreen> {
         ),
         child: isReadyToCharge
             ? TweenAnimationBuilder<double>(
-          tween: Tween<double>(begin: 0.35, end: 0.85),
-          duration: const Duration(milliseconds: 1000),
-          builder: (context, animatedGlow, child) {
-            return Container(
-              width: double.infinity,
-              height: 48,
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Color(0xFF8CE680),
-                    Color(0xFF5BCE50),
-                  ],
-                ),
-                borderRadius: BorderRadius.circular(13),
-                border: Border.all(
-                  color: const Color(0xFF388E3C),
-                  width: 1.5,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: const Color(0xFF5BCE50).withValues(alpha: animatedGlow),
-                    blurRadius: 12 * animatedGlow,
-                    spreadRadius: 2 * animatedGlow,
+                tween: Tween<double>(begin: 0.35, end: 0.85),
+                duration: const Duration(milliseconds: 1000),
+                builder: (context, animatedGlow, child) {
+                  return Container(
+                    width: double.infinity,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [Color(0xFF8CE680), Color(0xFF5BCE50)],
+                      ),
+                      borderRadius: BorderRadius.circular(13),
+                      border: Border.all(color: const Color(0xFF388E3C), width: 1.5),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFF5BCE50).withValues(alpha: animatedGlow),
+                          blurRadius: 12 * animatedGlow,
+                          spreadRadius: 2 * animatedGlow,
+                        ),
+                      ],
+                    ),
+                    child: ElevatedButton.icon(
+                      onPressed: () => _openPaymentModal(isSplitModeDirect: false),
+                      icon: const Icon(Icons.shopping_cart_checkout_rounded, size: 20, color: Color(0xFF092606)),
+                      label: FittedBox(
+                        child: Text(
+                          '${tr('charge')} ${_formatCurrency(_amount)}',
+                          style: const TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 17,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 1.2,
+                            color: Color(0xFF092606),
+                          ),
+                        ),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.transparent,
+                        disabledBackgroundColor: Colors.transparent,
+                        shadowColor: Colors.transparent,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)),
+                      ),
+                    ),
+                  );
+                },
+              )
+            : Container(
+                width: double.infinity,
+                height: 48,
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [Color(0xFF4A5647), Color(0xFF3B4438)],
                   ),
-                ],
-              ),
-              child: ElevatedButton.icon(
-                onPressed: _openPaymentModal,
-                icon: const Icon(Icons.shopping_cart_checkout_rounded, size: 20, color: Color(0xFF092606)),
-                label: FittedBox(
-                  child: Text(
-                    '${tr('charge')} ${_formatCurrency(_amount)}',
-                    style: const TextStyle(
-                      fontFamily: 'monospace',
-                      fontSize: 17,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: 1.2,
-                      color: Color(0xFF092606),
+                  borderRadius: BorderRadius.circular(13),
+                  border: Border.all(color: const Color(0xFF2A3328), width: 1.5),
+                ),
+                child: ElevatedButton.icon(
+                  onPressed: null,
+                  icon: const Icon(Icons.shopping_cart_checkout_rounded, size: 20, color: Color(0x66152013)),
+                  label: FittedBox(
+                    child: Text(
+                      '${tr('charge')} \$0.00',
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 17,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 1.2,
+                        color: Color(0x66152013),
+                      ),
                     ),
                   ),
-                ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.transparent,
-                  disabledBackgroundColor: Colors.transparent,
-                  shadowColor: Colors.transparent,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)),
-                ),
-              ),
-            );
-          },
-        )
-            : Container(
-          width: double.infinity,
-          height: 48,
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                Color(0xFF4A5647),
-                Color(0xFF3B4438),
-              ],
-            ),
-            borderRadius: BorderRadius.circular(13),
-            border: Border.all(
-              color: const Color(0xFF2A3328),
-              width: 1.5,
-            ),
-          ),
-          child: ElevatedButton.icon(
-            onPressed: null,
-            icon: const Icon(Icons.shopping_cart_checkout_rounded, size: 20, color: Color(0x66152013)),
-            label: FittedBox(
-              child: Text(
-                '${tr('charge')} \$0.00',
-                style: const TextStyle(
-                  fontFamily: 'monospace',
-                  fontSize: 17,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 1.2,
-                  color: Color(0x66152013),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.transparent,
+                    disabledBackgroundColor: Colors.transparent,
+                    shadowColor: Colors.transparent,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)),
+                  ),
                 ),
               ),
-            ),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.transparent,
-              disabledBackgroundColor: Colors.transparent,
-              shadowColor: Colors.transparent,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)),
-            ),
-          ),
-        ),
       ),
     );
   }

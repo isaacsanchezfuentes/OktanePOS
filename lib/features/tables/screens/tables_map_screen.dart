@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -47,9 +48,7 @@ class _TablesMapScreenState extends State<TablesMapScreen> with SingleTickerProv
 
   Future<void> _syncTablesData() async {
     await _tableService.fetchOrSeedSupabaseTables();
-    if (mounted) {
-      setState(() {});
-    }
+    if (mounted) setState(() {});
   }
 
   @override
@@ -81,21 +80,33 @@ class _TablesMapScreenState extends State<TablesMapScreen> with SingleTickerProv
     }
   }
 
+  String _generateUuidV4() {
+    final random = Random.secure();
+    final bytes = List<int>.generate(16, (_) => random.nextInt(256));
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    final hex = bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+    return '${hex.substring(0, 8)}-${hex.substring(8, 12)}-${hex.substring(12, 16)}-${hex.substring(16, 20)}-${hex.substring(20)}';
+  }
+
   Future<void> _toggleEditMode() async {
     final auth = context.read<AuthProvider>();
     final isManager = _rbacService.isManagerOrAdmin(auth.rol);
 
     if (_isEditMode) {
+      final currentZone = _zones[_tabController.index];
+      await _tableService.saveAllPositionsToSupabase(currentZone.id);
+
       setState(() => _isEditMode = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            AppLocale.instance.isSpanish
-                ? '✅ Coordenadas de mapa guardadas exitosamente'
-                : '✅ Map coordinates saved successfully',
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ Plano de mesas guardado y sincronizado con éxito'),
+            backgroundColor: Color(0xFF059669),
+            duration: Duration(seconds: 2),
           ),
-        ),
-      );
+        );
+      }
       return;
     }
 
@@ -108,14 +119,11 @@ class _TablesMapScreenState extends State<TablesMapScreen> with SingleTickerProv
       final bool? granted = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
-          title: Row(
+          title: const Row(
             children: [
-              const Icon(Icons.lock, color: Colors.indigo),
-              const SizedBox(width: 8),
-              Text(
-                AppLocale.instance.isSpanish ? 'PIN de Gerente Requerido' : 'Manager PIN Required',
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-              ),
+              Icon(Icons.lock, color: Colors.indigo),
+              SizedBox(width: 8),
+              Text('PIN de Gerente Requerido', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
             ],
           ),
           content: Form(
@@ -123,42 +131,28 @@ class _TablesMapScreenState extends State<TablesMapScreen> with SingleTickerProv
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(
-                  AppLocale.instance.isSpanish
-                      ? 'El modo edición gerencial (mover posiciones) requiere autorización de supervisor.'
-                      : 'Layout editing mode (repositioning tables) requires supervisor authorization.',
-                ),
+                const Text('La reconfiguración arquitectónica de mesas y barras requiere PIN supervisor.'),
                 const SizedBox(height: 12),
                 TextFormField(
                   controller: pinCtrl,
                   keyboardType: TextInputType.number,
                   obscureText: true,
                   maxLength: 4,
-                  decoration: InputDecoration(
-                    labelText: AppLocale.instance.isSpanish ? 'PIN de Gerente' : 'Manager PIN',
-                    border: const OutlineInputBorder(),
-                  ),
-                  validator: (v) => (v == null || v.trim().length < 4)
-                      ? (AppLocale.instance.isSpanish ? '4 dígitos requeridos' : '4 digits required')
-                      : null,
+                  decoration: const InputDecoration(labelText: 'PIN de Gerente', border: OutlineInputBorder()),
+                  validator: (v) => (v == null || v.trim().length < 4) ? '4 dígitos requeridos' : null,
                 ),
               ],
             ),
           ),
           actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: Text(tr('cancel')),
-            ),
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(tr('cancel'))),
             ElevatedButton(
               onPressed: () async {
                 if (!formKey.currentState!.validate()) return;
                 final isValid = await _rbacService.verifyManagerPin(pinCtrl.text.trim());
-                if (ctx.mounted) {
-                  Navigator.pop(ctx, isValid);
-                }
+                if (ctx.mounted) Navigator.pop(ctx, isValid);
               },
-              child: Text(AppLocale.instance.isSpanish ? 'Desbloquear' : 'Unlock'),
+              child: const Text('Desbloquear'),
             ),
           ],
         ),
@@ -166,19 +160,361 @@ class _TablesMapScreenState extends State<TablesMapScreen> with SingleTickerProv
 
       if (granted == true && mounted) {
         setState(() => _isEditMode = true);
-      } else if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              AppLocale.instance.isSpanish
-                  ? '❌ Acceso denegado: PIN de gerente requerido'
-                  : '❌ Access denied: Manager PIN required',
-            ),
-            backgroundColor: Colors.red,
-          ),
-        );
       }
     }
+  }
+
+  void _showAddElementSheet(ZoneModel zone) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1E293B),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Agregar al Plano', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 16),
+                ListTile(
+                  leading: const Icon(Icons.crop_square_rounded, color: Colors.blueAccent, size: 28),
+                  title: const Text('Mesa Cuadrada / Rectangular', style: TextStyle(color: Colors.white)),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _createNewElement(zone, shape: 'square', seats: 4);
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.circle_outlined, color: Colors.greenAccent, size: 28),
+                  title: const Text('Mesa Redonda', style: TextStyle(color: Colors.white)),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _createNewElement(zone, shape: 'round', seats: 4);
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.chair_alt_rounded, color: Colors.amberAccent, size: 28),
+                  title: const Text('Banquillo', style: TextStyle(color: Colors.white)),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _createNewElement(zone, shape: 'stool', seats: 1);
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.view_stream_rounded, color: Colors.purpleAccent, size: 28),
+                  title: const Text('Barra / Muro Arquitectónico', style: TextStyle(color: Colors.white)),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _createNewElement(zone, shape: 'counter', seats: 0, isStructural: true);
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _createNewElement(ZoneModel zone, {required String shape, required int seats, bool isStructural = false}) {
+    final existingTables = _tableService.getTablesByZone(zone.id);
+    int nextNumber = 1;
+    if (existingTables.isNotEmpty) {
+      final numbers = existingTables.map((t) => t.tableNumber).toList()..sort();
+      nextNumber = numbers.last + 1;
+    }
+
+    final newId = _generateUuidV4();
+    final String defaultLabel = isStructural
+        ? 'MURO'
+        : (shape == 'stool' ? 'Banquillo $nextNumber' : 'Mesa $nextNumber');
+
+    final element = RestaurantTableModel(
+      id: newId,
+      zoneId: zone.id,
+      tableNumber: isStructural ? 0 : nextNumber,
+      label: defaultLabel,
+      seats: seats,
+      shape: shape,
+      isStructural: isStructural,
+      posX: 0.15,
+      posY: 0.30,
+      width: isStructural ? 0.55 : 0.14,
+      height: isStructural ? 0.10 : 0.10,
+    );
+
+    _tableService.addTable(element);
+  }
+
+  // DIÁLOGO CON TÍTULOS EXTERNOS: CERO EMPALMES VISUALES
+  void _showEditElementDialog(ZoneModel zone, RestaurantTableModel table) {
+    final labelCtrl = TextEditingController(
+      text: table.label ?? (table.isStructural ? 'MURO' : (table.shape == 'stool' ? 'Banquillo ${table.tableNumber}' : 'Mesa ${table.tableNumber}')),
+    );
+    int currentSeats = table.seats;
+    String currentShape = table.shape;
+    double currentWidth = table.width;
+    double currentHeight = table.height;
+    bool isVertical = currentHeight > currentWidth;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setModalState) => AlertDialog(
+          backgroundColor: const Color(0xFF1E293B),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          titlePadding: const EdgeInsets.fromLTRB(22, 22, 22, 10),
+          contentPadding: const EdgeInsets.fromLTRB(22, 10, 22, 16),
+          title: const Row(
+            children: [
+              Icon(Icons.tune_rounded, color: Colors.lightBlueAccent, size: 22),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Propiedades del Elemento',
+                  style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Etiqueta del campo fuera del TextField para evitar empalmes
+                const Text(
+                  'Etiqueta / Nombre:',
+                  style: TextStyle(
+                    color: Color(0xFF94A3B8),
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                TextField(
+                  controller: labelCtrl,
+                  style: const TextStyle(
+                    color: Color(0xFF0F172A),
+                    fontWeight: FontWeight.w800,
+                    fontSize: 14.5,
+                  ),
+                  decoration: InputDecoration(
+                    hintText: 'Ej. Mesa 1, Banquillo 1, MURO...',
+                    hintStyle: const TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+                    filled: true,
+                    fillColor: Colors.white,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: const BorderSide(color: Color(0xFF38BDF8), width: 1.5),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: const BorderSide(color: Color(0xFFCBD5E1), width: 1.2),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: const BorderSide(color: Color(0xFF0284C7), width: 2.0),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // Selector de Forma Visual con título externo
+                const Text(
+                  'Forma Visual:',
+                  style: TextStyle(
+                    color: Color(0xFF94A3B8),
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                DropdownButtonFormField<String>(
+                  value: currentShape,
+                  dropdownColor: Colors.white,
+                  icon: const Icon(Icons.arrow_drop_down, color: Color(0xFF0F172A)),
+                  style: const TextStyle(
+                    color: Color(0xFF0F172A),
+                    fontWeight: FontWeight.w800,
+                    fontSize: 14,
+                  ),
+                  decoration: InputDecoration(
+                    filled: true,
+                    fillColor: Colors.white,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: const BorderSide(color: Color(0xFF38BDF8), width: 1.5),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: const BorderSide(color: Color(0xFFCBD5E1), width: 1.2),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: const BorderSide(color: Color(0xFF0284C7), width: 2.0),
+                    ),
+                  ),
+                  items: const [
+                    DropdownMenuItem(value: 'square', child: Text('Cuadrada / Rectangular', style: TextStyle(color: Color(0xFF0F172A)))),
+                    DropdownMenuItem(value: 'round', child: Text('Redonda', style: TextStyle(color: Color(0xFF0F172A)))),
+                    DropdownMenuItem(value: 'stool', child: Text('Banquillo', style: TextStyle(color: Color(0xFF0F172A)))),
+                    DropdownMenuItem(value: 'counter', child: Text('Barra / Muro', style: TextStyle(color: Color(0xFF0F172A)))),
+                  ],
+                  onChanged: (val) {
+                    if (val != null) {
+                      setModalState(() {
+                        currentShape = val;
+                        if (val == 'counter') {
+                          currentWidth = isVertical ? 0.10 : 0.55;
+                          currentHeight = isVertical ? 0.45 : 0.10;
+                        }
+                      });
+                    }
+                  },
+                ),
+
+                if (currentShape != 'round' && currentShape != 'stool') ...[
+                  const SizedBox(height: 16),
+                  const Text('Orientación / Giro:', style: TextStyle(color: Color(0xFF94A3B8), fontWeight: FontWeight.bold, fontSize: 12)),
+                  const SizedBox(height: 6),
+                  Container(
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF0F172A),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0xFF334155)),
+                    ),
+                    padding: const EdgeInsets.all(4),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: InkWell(
+                            onTap: () => setModalState(() {
+                              isVertical = false;
+                              if (currentHeight > currentWidth) {
+                                final temp = currentWidth;
+                                currentWidth = currentHeight;
+                                currentHeight = temp;
+                              }
+                            }),
+                            borderRadius: BorderRadius.circular(8),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(vertical: 8),
+                              decoration: BoxDecoration(
+                                color: !isVertical ? const Color(0xFF2563EB) : Colors.transparent,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: const Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.swap_horiz, size: 18, color: Colors.white),
+                                  SizedBox(width: 6),
+                                  Text('Horizontal', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12.5)),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                        Expanded(
+                          child: InkWell(
+                            onTap: () => setModalState(() {
+                              isVertical = true;
+                              if (currentWidth > currentHeight) {
+                                final temp = currentWidth;
+                                currentWidth = currentHeight;
+                                currentHeight = temp;
+                              }
+                            }),
+                            borderRadius: BorderRadius.circular(8),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(vertical: 8),
+                              decoration: BoxDecoration(
+                                color: isVertical ? const Color(0xFF2563EB) : Colors.transparent,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: const Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.swap_vert, size: 18, color: Colors.white),
+                                  SizedBox(width: 6),
+                                  Text('Vertical', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12.5)),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+
+                if (currentShape != 'counter' && !table.isStructural) ...[
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Sillas / Capacidad:', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                      Row(
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.remove_circle_outline, color: Colors.white70),
+                            onPressed: currentSeats > 1 ? () => setModalState(() => currentSeats--) : null,
+                          ),
+                          Text('$currentSeats', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+                          IconButton(
+                            icon: const Icon(Icons.add_circle_outline, color: Colors.white70),
+                            onPressed: currentSeats < 16 ? () => setModalState(() => currentSeats++) : null,
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton.icon(
+              icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+              label: const Text('Eliminar', style: TextStyle(color: Colors.redAccent)),
+              onPressed: () async {
+                final deleted = await _tableService.deleteTable(zone.id, table.id);
+                if (ctx.mounted) {
+                  Navigator.pop(ctx);
+                  if (!deleted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('⚠️ No se puede eliminar: tiene consumos pendientes'), backgroundColor: Colors.red),
+                    );
+                  }
+                }
+              },
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2563EB)),
+              onPressed: () {
+                final isStructuralElement = currentShape == 'counter';
+                final updated = table.copyWith(
+                  label: labelCtrl.text.trim(),
+                  seats: isStructuralElement ? 0 : currentSeats,
+                  shape: currentShape,
+                  width: currentWidth,
+                  height: currentHeight,
+                  isStructural: isStructuralElement,
+                );
+                _tableService.updateTableElement(updated);
+                Navigator.pop(ctx);
+              },
+              child: const Text('Guardar', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   void _showTableTicketsBottomSheet(ZoneModel zone, RestaurantTableModel table) {
@@ -187,25 +523,8 @@ class _TablesMapScreenState extends State<TablesMapScreen> with SingleTickerProv
       zone: zone,
       table: table,
       tableService: _tableService,
-      onTableUpdated: () {
-        _syncTablesData();
-      },
+      onTableUpdated: () => _syncTablesData(),
     ).then((_) => _syncTablesData());
-  }
-
-  Widget _buildLegendItem(String label, Color color, Color textColor) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 10,
-          height: 10,
-          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-        ),
-        const SizedBox(width: 4),
-        Text(label, style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: textColor)),
-      ],
-    );
   }
 
   Widget _buildZoneCanvas(ZoneModel zone, List<RestaurantTableModel> tables) {
@@ -223,21 +542,9 @@ class _TablesMapScreenState extends State<TablesMapScreen> with SingleTickerProv
               spacing: 16.0,
               runSpacing: 4.0,
               children: [
-                _buildLegendItem(
-                  AppLocale.instance.isSpanish ? 'Disponible' : 'Available',
-                  TableTheme.freeBorder,
-                  TableTheme.freeText,
-                ),
-                _buildLegendItem(
-                  AppLocale.instance.isSpanish ? 'Ocupada' : 'Occupied',
-                  TableTheme.occupiedBorder,
-                  TableTheme.occupiedText,
-                ),
-                _buildLegendItem(
-                  AppLocale.instance.isSpanish ? 'Cuenta Pedida' : 'Bill Requested',
-                  TableTheme.billedBorder,
-                  TableTheme.billedText,
-                ),
+                _buildLegendItem('Disponible', TableTheme.freeBorder, TableTheme.freeText),
+                _buildLegendItem('Ocupada', TableTheme.occupiedBorder, TableTheme.occupiedText),
+                _buildLegendItem('Cuenta Pedida', TableTheme.billedBorder, TableTheme.billedText),
               ],
             ),
           ),
@@ -257,30 +564,36 @@ class _TablesMapScreenState extends State<TablesMapScreen> with SingleTickerProv
                     final yPos = table.posY * canvasHeight;
 
                     return Positioned(
-                      left: xPos.clamp(0.0, canvasWidth - 80),
-                      top: yPos.clamp(0.0, canvasHeight - 80),
+                      left: xPos.clamp(0.0, canvasWidth - 40),
+                      top: yPos.clamp(0.0, canvasHeight - 40),
                       child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
                         onPanUpdate: _isEditMode
                             ? (details) {
-                                setState(() {
-                                  final newX = (xPos + details.delta.dx) / canvasWidth;
-                                  final newY = (yPos + details.delta.dy) / canvasHeight;
-                                  _tableService.updateTablePosition(zone.id, table.id, newX, newY);
-                                });
+                                final deltaX = details.delta.dx / canvasWidth;
+                                final deltaY = details.delta.dy / canvasHeight;
+                                _tableService.updateTablePosition(
+                                  zone.id,
+                                  table.id,
+                                  table.posX + deltaX,
+                                  table.posY + deltaY,
+                                );
                               }
                             : null,
                         onTap: () {
-                          if (_isEditMode) return;
+                          if (_isEditMode) {
+                            _showEditElementDialog(zone, table);
+                            return;
+                          }
+                          if (table.isStructural) return;
+
                           if (widget.isSelectionMode) {
-                            Navigator.pop(context, {
-                              'table': table,
-                              'zone': zone,
-                            });
+                            Navigator.pop(context, {'table': table, 'zone': zone});
                           } else {
                             _showTableTicketsBottomSheet(zone, table);
                           }
                         },
-                        child: _buildTableCard(table),
+                        child: _buildTableCard(table, canvasWidth, canvasHeight),
                       ),
                     );
                   }).toList(),
@@ -293,7 +606,43 @@ class _TablesMapScreenState extends State<TablesMapScreen> with SingleTickerProv
     );
   }
 
-  Widget _buildTableCard(RestaurantTableModel table) {
+  Widget _buildTableCard(RestaurantTableModel table, double canvasWidth, double canvasHeight) {
+    if (table.isStructural || table.shape == 'counter') {
+      final bool isVertical = table.height > table.width;
+      final double rawWidth = table.width * canvasWidth;
+      final double rawHeight = table.height * canvasHeight;
+
+      final double width = isVertical ? rawWidth.clamp(32.0, 72.0) : rawWidth.clamp(80.0, canvasWidth * 0.95);
+      final double height = isVertical ? rawHeight.clamp(80.0, canvasHeight * 0.85) : rawHeight.clamp(32.0, 72.0);
+
+      return Material(
+        elevation: _isEditMode ? 6 : 2,
+        borderRadius: BorderRadius.circular(8),
+        color: const Color(0xFF334155),
+        child: Container(
+          width: width,
+          height: height,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: _isEditMode ? Colors.amberAccent : const Color(0xFF64748B), width: _isEditMode ? 1.8 : 1.2),
+          ),
+          alignment: Alignment.center,
+          child: isVertical
+              ? RotatedBox(
+                  quarterTurns: 3,
+                  child: Text(
+                    table.label ?? 'BARRA PRINCIPAL',
+                    style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w900, fontSize: 11, letterSpacing: 1.2),
+                  ),
+                )
+              : Text(
+                  table.label ?? 'BARRA PRINCIPAL',
+                  style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w900, fontSize: 11, letterSpacing: 1.2),
+                ),
+        ),
+      );
+    }
+
     Color cardColor;
     Color borderColor;
     Color textColor;
@@ -320,17 +669,30 @@ class _TablesMapScreenState extends State<TablesMapScreen> with SingleTickerProv
     }
 
     final double tableTotal = table.activeTickets.fold(0.0, (sum, t) => sum + ((t['amount'] as num?)?.toDouble() ?? 0.0));
-    final isStool = table.shape == 'circle' || table.shape == 'bar' || table.tableNumber >= 20;
+    final isStool = table.shape == 'stool';
+    final isRound = table.shape == 'round' || table.shape == 'circle';
+    final bool isVertical = table.height > table.width;
 
-    final double width = isStool ? 72.0 : (table.seats > 6 ? 90.0 : 78.0);
-    final double height = isStool ? 72.0 : (table.seats > 6 ? 90.0 : 78.0);
-    final borderRadius = BorderRadius.circular(isStool ? 36 : 10);
+    double width;
+    double height;
 
+    if (isStool) {
+      width = 62.0;
+      height = 62.0;
+    } else if (isRound) {
+      final s = table.seats > 4 ? 86.0 : 76.0;
+      width = s;
+      height = s;
+    } else {
+      final longSide = table.seats > 6 ? 94.0 : (table.seats > 4 ? 86.0 : 80.0);
+      final shortSide = table.seats > 4 ? 80.0 : 76.0;
+      width = isVertical ? shortSide : longSide;
+      height = isVertical ? longSide : shortSide;
+    }
+
+    final borderRadius = BorderRadius.circular(isStool || isRound ? 45 : 10);
     final elapsedLabel = _getElapsedTimeLabel(table);
-    final firstTicketTime = table.activeTickets.isNotEmpty
-        ? (DateTime.tryParse(table.activeTickets.first['created_at']?.toString() ?? '') ?? DateTime.now())
-        : DateTime.now();
-    final isLongStay = DateTime.now().difference(firstTicketTime).inMinutes > 75;
+    final displayName = table.label ?? (isStool ? 'Banquillo ${table.tableNumber}' : 'Mesa ${table.tableNumber}');
 
     return Material(
       elevation: _isEditMode ? 6 : 3,
@@ -341,38 +703,31 @@ class _TablesMapScreenState extends State<TablesMapScreen> with SingleTickerProv
         height: height,
         decoration: BoxDecoration(
           borderRadius: borderRadius,
-          border: Border.all(color: borderColor, width: 2),
+          border: Border.all(color: _isEditMode ? Colors.amberAccent : borderColor, width: _isEditMode ? 2.2 : 2.0),
         ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Text(
-              isStool ? 'B${table.tableNumber}' : '${tr('table')} ${table.tableNumber}',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: isStool ? 12 : 13, color: textColor),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 2.0),
+              child: Text(
+                displayName,
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: isStool ? 9.5 : 12.0, color: textColor),
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
-            const SizedBox(height: 1),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text('👥 ${table.seats}', style: const TextStyle(fontSize: 10, color: TableTheme.textSecondary, fontWeight: FontWeight.w600)),
-              ],
-            ),
-            if (elapsedLabel != null) ...[
+            if (!isStool) ...[
+              const SizedBox(height: 1),
+              Text('👥 ${table.seats}', style: const TextStyle(fontSize: 10, color: TableTheme.textSecondary, fontWeight: FontWeight.w600)),
+            ],
+            if (elapsedLabel != null && !isStool) ...[
               const SizedBox(height: 1),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                decoration: BoxDecoration(
-                  color: const Color(0x40000000),
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: Text(
-                  elapsedLabel,
-                  style: TextStyle(
-                    fontSize: 9,
-                    fontWeight: FontWeight.bold,
-                    color: isLongStay ? TableTheme.occupiedText : TableTheme.textSecondary,
-                  ),
-                ),
+                decoration: BoxDecoration(color: const Color(0x40000000), borderRadius: BorderRadius.circular(4)),
+                child: Text(elapsedLabel, style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: TableTheme.occupiedText)),
               ),
             ],
             if (tableTotal > 0) ...[
@@ -382,33 +737,24 @@ class _TablesMapScreenState extends State<TablesMapScreen> with SingleTickerProv
                 decoration: BoxDecoration(color: TableTheme.occupiedBorder, borderRadius: BorderRadius.circular(4)),
                 child: Text(
                   _formatCurrency(tableTotal),
-                  style: const TextStyle(
-                    color: Colors.black,
-                    fontSize: 9,
-                    fontWeight: FontWeight.w700,
-                    fontFeatures: [FontFeature.tabularFigures()],
-                  ),
-                ),
-              ),
-            ] else if (table.activeTickets.isNotEmpty) ...[
-              const SizedBox(height: 1),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                decoration: BoxDecoration(color: TableTheme.billedBorder, borderRadius: BorderRadius.circular(4)),
-                child: Text(
-                  '${table.activeTickets.length} Tkt',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 9,
-                    fontWeight: FontWeight.w700,
-                    fontFeatures: [FontFeature.tabularFigures()],
-                  ),
+                  style: const TextStyle(color: Colors.black, fontSize: 8.5, fontWeight: FontWeight.w700),
                 ),
               ),
             ],
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildLegendItem(String label, Color color, Color textColor) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(width: 10, height: 10, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+        const SizedBox(width: 4),
+        Text(label, style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: textColor)),
+      ],
     );
   }
 
@@ -420,9 +766,7 @@ class _TablesMapScreenState extends State<TablesMapScreen> with SingleTickerProv
         AppLocale.instance,
       ]),
       builder: (context, _) {
-        final titleText = _isEditMode
-            ? (AppLocale.instance.isSpanish ? 'Edición de Plano' : 'Layout Editing')
-            : (AppLocale.instance.isSpanish ? 'Distribución de Mesas' : 'Tables Distribution');
+        final titleText = _isEditMode ? 'Editor de Plano' : 'Distribución de Mesas';
 
         return Scaffold(
           backgroundColor: TableTheme.floorBackground,
@@ -437,10 +781,7 @@ class _TablesMapScreenState extends State<TablesMapScreen> with SingleTickerProv
                 children: [
                   const Icon(Icons.table_restaurant, color: TableTheme.occupiedBorder),
                   const SizedBox(width: 8),
-                  Text(
-                    titleText,
-                    style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
-                  ),
+                  Text(titleText, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
                 ],
               ),
             ),
@@ -451,9 +792,7 @@ class _TablesMapScreenState extends State<TablesMapScreen> with SingleTickerProv
                     _isEditMode ? Icons.check_circle : Icons.edit_location_alt,
                     color: _isEditMode ? TableTheme.freeBorder : TableTheme.occupiedBorder,
                   ),
-                  tooltip: _isEditMode
-                      ? (AppLocale.instance.isSpanish ? 'Guardar Cambios' : 'Save Changes')
-                      : (AppLocale.instance.isSpanish ? 'Modo Edición' : 'Edit Mode'),
+                  tooltip: _isEditMode ? 'Guardar' : 'Modo Edición',
                   onPressed: _toggleEditMode,
                 ),
             ],
@@ -466,8 +805,18 @@ class _TablesMapScreenState extends State<TablesMapScreen> with SingleTickerProv
               tabs: _zones.map((z) => Tab(text: z.name)).toList(),
             ),
           ),
+          floatingActionButton: _isEditMode
+              ? FloatingActionButton.extended(
+                  backgroundColor: const Color(0xFF2563EB),
+                  foregroundColor: Colors.white,
+                  icon: const Icon(Icons.add),
+                  label: const Text('Nuevo Elemento'),
+                  onPressed: () => _showAddElementSheet(_zones[_tabController.index]),
+                )
+              : null,
           body: TabBarView(
             controller: _tabController,
+            physics: _isEditMode ? const NeverScrollableScrollPhysics() : const BouncingScrollPhysics(),
             children: _zones.map((zone) {
               final tables = _tableService.getTablesByZone(zone.id);
               return _buildZoneCanvas(zone, tables);
